@@ -1,0 +1,1296 @@
+# Snakefile for ipyrad pipeline - Multi-project support
+# Run with: snakemake --cores 48 --use-conda
+# Specify project: snakemake --cores 48 --use-conda --config project=Pmi_full
+# Run all projects: snakemake --cores 48 --use-conda
+
+import os
+import re
+from collections import defaultdict
+
+def normalize_threshold_value(value, context="threshold"):
+    """
+    Normalize clustering threshold to proportion (0, 1].
+    Accepts legacy percent-style ints/floats >1 (e.g., 85 -> 0.85).
+    """
+    try:
+        t = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid {context}: {value!r}. Must be numeric.")
+    if t <= 0:
+        raise ValueError(f"Invalid {context}: {value!r}. Must be > 0.")
+    if t > 1.0:
+        t = t / 100.0
+    if t <= 0 or t > 1.0:
+        raise ValueError(f"Invalid {context}: {value!r}. Normalized value must be in (0, 1].")
+    return t
+
+
+def threshold_to_token(value):
+    """
+    Convert threshold proportion to filesystem-safe token.
+    Examples:
+      0.85   -> "85"
+      0.875  -> "87p5"
+      0.8512 -> "85p12"
+    """
+    t = normalize_threshold_value(value)
+    pct = t * 100.0
+    rounded = round(pct, 6)
+    if abs(rounded - round(rounded)) < 1e-9:
+        return str(int(round(rounded)))
+    return f"{rounded:.6f}".rstrip("0").rstrip(".").replace(".", "p")
+
+
+def get_optimization_threshold_entries(profile_cfg, profile_name):
+    """
+    Return list of dicts:
+      {"value": <float proportion>, "token": <name token>, "assembly_name": ...}
+    """
+    entries = []
+    for t in profile_cfg["optimization"]["thresholds"]:
+        t_norm = normalize_threshold_value(t)
+        token = threshold_to_token(t_norm)
+        entries.append({
+            "value": t_norm,
+            "token": token,
+            "assembly_name": f"optimization_{profile_name}_{token}",
+        })
+    return entries
+
+# Normalize project_dir values so path matching is robust.
+def normalize_project_dir(path_value):
+    """Normalize a project directory path and reject empty values."""
+    if path_value is None:
+        return None
+    normalized = os.path.normpath(str(path_value).strip())
+    if normalized in ("", "."):
+        raise ValueError(f"Invalid project_dir value: {path_value!r}")
+    return normalized.rstrip("/")
+
+
+def merge_dicts(base, override):
+    """Shallow dict merge where override keys win."""
+    merged = dict(base or {})
+    merged.update(dict(override or {}))
+    return merged
+
+
+def get_subset_outputs(project_name, profile_name, assembly_name, project_dir):
+    """Get all subset output paths for a full assembly profile."""
+    try:
+        profile_cfg = PROJECT_PROFILES_CONFIGS[project_name][profile_name]
+        subsets = profile_cfg.get("step7_subsets", {}) or {}
+        outputs = []
+        if subsets:
+            for subset_name in subsets.keys():
+                output_path = (
+                    f"{project_dir}/full/{assembly_name}/"
+                    f"{assembly_name}_{subset_name}_outfiles/{assembly_name}_{subset_name}.loci"
+                )
+                outputs.append(output_path)
+        return outputs
+    except Exception:
+        return []
+
+# Determine which project(s) to run
+if "project" in config:
+    # Single project specified on command line
+    PROJECTS = [config["project"]]
+    if config["project"] not in config["projects"]:
+        raise ValueError(f"Project '{config['project']}' not found in config")
+else:
+    # Run all projects
+    PROJECTS = list(config["projects"].keys())
+
+# Validate and normalize project_dir values (default to project name if missing)
+PROJECT_DIR_TO_PROJECT = {}
+PROJECT_PROFILES = {}
+PROJECT_PROFILES_CONFIGS = {}
+PROJECT_STEP12_CONFIGS = {}
+ASSEMBLY_PROFILE_BY_PROJECT = defaultdict(dict)
+ASSEMBLY_THRESHOLDS = {}
+
+for project_name in PROJECTS:
+    proj_config = config["projects"][project_name]
+
+    raw_project_dir = proj_config.get("project_dir", project_name)
+    normalized_project_dir = normalize_project_dir(raw_project_dir)
+    if normalized_project_dir in PROJECT_DIR_TO_PROJECT:
+        other = PROJECT_DIR_TO_PROJECT[normalized_project_dir]
+        raise ValueError(
+            f"Duplicate project_dir '{normalized_project_dir}' for projects "
+            f"'{other}' and '{project_name}'. Use unique output directories."
+        )
+    proj_config["project_dir"] = normalized_project_dir
+    PROJECT_DIR_TO_PROJECT[normalized_project_dir] = project_name
+
+    # New schema: projects.<name>.assemblies.<profile>
+    if "assemblies" in proj_config:
+        profiles_cfg = proj_config["assemblies"] or {}
+        if not isinstance(profiles_cfg, dict) or not profiles_cfg:
+            raise ValueError(
+                f"Project '{project_name}' has invalid 'assemblies'. "
+                "Expected non-empty mapping of profile -> config."
+            )
+        profile_names = list(profiles_cfg.keys())
+    else:
+        # Backward-compatible legacy schema
+        profile_names = ["default"]
+        profiles_cfg = {"default": {}}
+
+    # Shared step1/2 settings: prefer explicit ipyrad_step12, fall back to legacy ipyrad.
+    if "ipyrad_step12" in proj_config and "ipyrad" in proj_config:
+        raise ValueError(
+            f"Project '{project_name}' defines both 'ipyrad_step12' and 'ipyrad'. "
+            "Use only one shared step1/2 config key."
+        )
+    project_base_ipyrad = dict(proj_config.get("ipyrad_step12", proj_config.get("ipyrad", {})) or {})
+    project_base_ipyrad.setdefault("datatype", "pair3rad")
+    project_base_workflow = proj_config.get("workflow", {})
+    project_base_optimization = proj_config.get("optimization", {})
+    project_base_qc = proj_config.get("qc", {})
+    project_base_subsets = proj_config.get("step7_subsets", {})
+
+    PROJECT_PROFILES[project_name] = profile_names
+    PROJECT_PROFILES_CONFIGS[project_name] = {}
+    PROJECT_STEP12_CONFIGS[project_name] = project_base_ipyrad
+
+    for profile_name in profile_names:
+        profile_raw = profiles_cfg[profile_name] or {}
+
+        # In legacy mode, profile_raw may be empty; use project-level values.
+        profile_ipyrad = merge_dicts(project_base_ipyrad, profile_raw.get("ipyrad", {}))
+        profile_workflow = merge_dicts(project_base_workflow, profile_raw.get("workflow", {}))
+        profile_optimization = merge_dicts(project_base_optimization, profile_raw.get("optimization", {}))
+        profile_qc = merge_dicts(project_base_qc, profile_raw.get("qc", {}))
+        profile_subsets = profile_raw.get("step7_subsets", project_base_subsets)
+
+        # Assembly-stage datatype default should not silently inherit step1/2 datatype.
+        if "datatype" not in (profile_raw.get("ipyrad", {}) or {}):
+            profile_ipyrad["datatype"] = "pairddrad"
+        if "assembly_method" not in profile_ipyrad:
+            profile_ipyrad["assembly_method"] = "denovo"
+        if "run_optimization" not in profile_workflow:
+            profile_workflow["run_optimization"] = False
+        if "run_full_assembly" not in profile_workflow:
+            profile_workflow["run_full_assembly"] = False
+        profile_optimization.setdefault("thresholds", [])
+        profile_optimization["thresholds"] = [
+            normalize_threshold_value(t, context=f"{project_name}.{profile_name}.optimization.thresholds")
+            for t in profile_optimization["thresholds"]
+        ]
+        profile_optimization.setdefault("replicate_suffix", "_repl")
+        profile_qc.setdefault("replicate_suffix", profile_optimization.get("replicate_suffix", "_repl"))
+
+        PROJECT_PROFILES_CONFIGS[project_name][profile_name] = {
+            "project_dir": normalized_project_dir,
+            "profile": profile_name,
+            "ipyrad": profile_ipyrad,
+            "workflow": profile_workflow,
+            "optimization": profile_optimization,
+            "qc": profile_qc,
+            "step7_subsets": profile_subsets or {},
+        }
+
+    # Shared demux/filter must be consistent across profiles in new schema.
+    demux_keys = ("restriction_overhang", "filter_adapters", "filter_min_trim_len")
+    if len(profile_names) > 1:
+        first = PROJECT_PROFILES_CONFIGS[project_name][profile_names[0]]["ipyrad"]
+        for pname in profile_names[1:]:
+            curr = PROJECT_PROFILES_CONFIGS[project_name][pname]["ipyrad"]
+            for key in demux_keys:
+                if first.get(key) != curr.get(key):
+                    raise ValueError(
+                        f"Project '{project_name}' has conflicting ipyrad.{key} across profiles "
+                        f"('{profile_names[0]}' vs '{pname}'). Shared demultiplex/filter requires identical values."
+                    )
+
+print(f"=== Running {len(PROJECTS)} project(s): {', '.join(PROJECTS)} ===\n")
+
+# Build library information for each project
+PROJECT_LIBRARIES = {}
+
+for project_name in PROJECTS:
+    proj_config = config["projects"][project_name]
+
+    print(f"Project: {project_name}")
+    print(f"  Output dir: {proj_config['project_dir']}")
+
+    # Find libraries for this project
+    library_files = {}
+    for prefix in proj_config["library_prefixes"]:
+        r1_path = f"{prefix}_R1_.fastq.gz"
+        r2_path = f"{prefix}_R2_.fastq.gz"
+        barcode_path = f"{prefix}.txt"
+        lib_name = os.path.basename(prefix)
+
+        # Verify files exist
+        missing = []
+        if not os.path.exists(r1_path):
+            missing.append("R1")
+        if not os.path.exists(r2_path):
+            missing.append("R2")
+        if not os.path.exists(barcode_path):
+            missing.append("barcode")
+
+        if missing:
+            print(f"  WARNING: Skipping {prefix} - missing: {', '.join(missing)}")
+            continue
+
+        # Create safe ID
+        safe_id = prefix.replace("/", "__")
+        library_files[safe_id] = {
+            "name": lib_name,
+            "r1": r1_path,
+            "r2": r2_path,
+            "barcode": barcode_path
+        }
+
+    PROJECT_LIBRARIES[project_name] = library_files
+
+    # Print summary
+    libs_by_basename = defaultdict(list)
+    for safe_id, info in library_files.items():
+        libs_by_basename[info["name"]].append(info["r1"])
+
+    print(f"  Found {len(library_files)} libraries:")
+    for basename in sorted(libs_by_basename.keys()):
+        file_list = libs_by_basename[basename]
+        if len(file_list) > 1:
+            print(f"    - {basename} ({len(file_list)} library copies - will merge)")
+            for fpath in file_list:
+                print(f"        {fpath}")
+        else:
+            print(f"    - {basename}")
+            print(f"        {file_list[0]}")
+
+    # Print workflow settings by profile
+    for profile_name in PROJECT_PROFILES[project_name]:
+        profile_cfg = PROJECT_PROFILES_CONFIGS[project_name][profile_name]
+        proj_workflow = profile_cfg["workflow"]
+        label = profile_name if profile_name != "default" else "legacy"
+        if proj_workflow["run_optimization"]:
+            opt = profile_cfg["optimization"]
+            print(f"  Profile '{label}': OPTIMIZATION ({len(opt['thresholds'])} thresholds)")
+        if proj_workflow["run_full_assembly"]:
+            print(f"  Profile '{label}': FULL ASSEMBLY")
+
+    print()
+
+# Define final outputs for all projects
+FINAL_OUTPUTS = []
+
+for project_name in PROJECTS:
+    proj_config = config["projects"][project_name]
+    project_dir = proj_config["project_dir"]
+
+    # Always export s2 stats summary after demultiplexing
+    FINAL_OUTPUTS.append(f"{project_dir}/demultiplexed/s2_stats_by_sample.tsv")
+
+    for profile_name in PROJECT_PROFILES[project_name]:
+        profile_cfg = PROJECT_PROFILES_CONFIGS[project_name][profile_name]
+        proj_workflow = profile_cfg["workflow"]
+
+        if proj_workflow["run_optimization"]:
+            for entry in get_optimization_threshold_entries(profile_cfg, profile_name):
+                assembly_name = entry["assembly_name"]
+                FINAL_OUTPUTS.append(
+                    f"{project_dir}/optimization/{assembly_name}/"
+                    f"{assembly_name}_outfiles/{assembly_name}.loci"
+                )
+                ASSEMBLY_THRESHOLDS[(project_name, profile_name, assembly_name)] = entry["value"]
+                ASSEMBLY_PROFILE_BY_PROJECT[project_name][assembly_name] = profile_name
+            FINAL_OUTPUTS.append(
+                f"{project_dir}/optimization/optimization_sample_stats_{profile_name}.csv"
+            )
+            FINAL_OUTPUTS.append(
+                f"{project_dir}/optimization/optimization_comparison_{profile_name}.pdf"
+            )
+            FINAL_OUTPUTS.append(
+                f"{project_dir}/optimization/supp_fig1_threshold_selection_{profile_name}.pdf"
+            )
+
+        if proj_workflow["run_full_assembly"]:
+            assembly_name = project_name if profile_name == "default" else f"{project_name}_{profile_name}"
+            qc_dir = f"{project_dir}/full/{assembly_name}/{assembly_name}_outfiles/qc"
+            FINAL_OUTPUTS.extend([
+                f"{project_dir}/full/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.loci",
+                f"{project_dir}/full/{assembly_name}/qc_report.txt",
+                f"{qc_dir}/{assembly_name}.shared_loci.tsv",
+                f"{qc_dir}/{assembly_name}.shared_loci_heatmap.pdf",
+                f"{qc_dir}/{assembly_name}.whoa_plot.pdf",
+                f"{qc_dir}/{assembly_name}.whoa_report.txt",
+                f"{qc_dir}/{assembly_name}.hardy_report.txt",
+                f"{qc_dir}/{assembly_name}.replicate_analysis.txt",
+                f"{project_dir}/full/{assembly_name}/qc/qc_metrics.csv",
+                f"{project_dir}/full/{assembly_name}/qc/supp_fig2_assembly_qc.pdf",
+            ])
+            ASSEMBLY_PROFILE_BY_PROJECT[project_name][assembly_name] = profile_name
+            subset_outputs = get_subset_outputs(project_name, profile_name, assembly_name, project_dir)
+            if subset_outputs:
+                FINAL_OUTPUTS.extend(subset_outputs)
+
+    # If neither workflow enabled, just demultiplex and filter
+    if all(
+        not PROJECT_PROFILES_CONFIGS[project_name][p]["workflow"]["run_optimization"]
+        and not PROJECT_PROFILES_CONFIGS[project_name][p]["workflow"]["run_full_assembly"]
+        for p in PROJECT_PROFILES[project_name]
+    ):
+        for lib_id, lib_info in PROJECT_LIBRARIES[project_name].items():
+            FINAL_OUTPUTS.append(
+                f"{project_dir}/demultiplexed/{lib_id}/{lib_info['name']}_edits/s2_rawedit_stats.txt"
+            )
+
+print(f"FINAL_OUTPUTS has {len(FINAL_OUTPUTS)} files:")
+for out in FINAL_OUTPUTS:
+    print(f"  {out}")
+
+rule all:
+    input: FINAL_OUTPUTS
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+CONDA_ENV = "envs/ipyrad.yaml"
+MEM_PER_CPU = lambda wildcards, threads: threads * config["resources"]["mem_per_cpu"]
+
+# Validate and set defaults for optional QC resources
+QC_STEPS = ['qc_whoa', 'qc_replicates', 'qc_vcftools_hardy', 'qc_hardy_summary', 'qc_shared_loci']
+for step in QC_STEPS:
+    if step not in config['resources']:
+        config['resources'][step] = {
+            'threads': 1,
+            'runtime': config['resources']['s7_filter_export']['runtime']
+        }
+
+# ============================================================================
+# Helper Functions - Project and Library Lookups
+# ============================================================================
+def get_project_from_path(path):
+    """Extract project name from project_dir or a full output path."""
+    normalized_path = normalize_project_dir(path)
+    if normalized_path in PROJECT_DIR_TO_PROJECT:
+        return PROJECT_DIR_TO_PROJECT[normalized_path]
+
+    matches = []
+    for project_dir, project_name in PROJECT_DIR_TO_PROJECT.items():
+        if normalized_path.startswith(f"{project_dir}/"):
+            matches.append((project_dir, project_name))
+
+    if not matches:
+        known_dirs = ", ".join(sorted(PROJECT_DIR_TO_PROJECT.keys()))
+        raise ValueError(
+            f"Could not determine project from path: {path}. "
+            f"Known project_dir values: {known_dirs}"
+        )
+
+    matches.sort(key=lambda item: len(item[0]), reverse=True)
+    return matches[0][1]
+
+def get_project_from_library(library_id):
+    """Find which project owns this library"""
+    for proj_name, libraries in PROJECT_LIBRARIES.items():
+        if library_id in libraries:
+            return proj_name
+    raise ValueError(f"Library {library_id} not found in any project")
+
+def get_lib_info(wildcards):
+    """Get library info for a wildcard set"""
+    project = get_project_from_path(wildcards.project_dir)
+    return PROJECT_LIBRARIES[project][wildcards.lib_id]
+
+def get_profile_name(wildcards):
+    """Get assembly profile name from wildcards or assembly mapping."""
+    if hasattr(wildcards, "profile"):
+        return wildcards.profile
+    if hasattr(wildcards, "assembly_name"):
+        project = get_project_from_path(wildcards.project_dir)
+        mapped = ASSEMBLY_PROFILE_BY_PROJECT.get(project, {}).get(wildcards.assembly_name)
+        if mapped:
+            return mapped
+    return "default"
+
+def get_project_shared_ipyrad(project):
+    """Get project-level settings used by shared demultiplex/filter."""
+    return PROJECT_STEP12_CONFIGS[project]
+
+def get_profile_config(wildcards):
+    """Get merged project/profile config for assembly-specific rules."""
+    project = get_project_from_path(wildcards.project_dir)
+    profile = get_profile_name(wildcards)
+    if profile not in PROJECT_PROFILES_CONFIGS[project]:
+        raise ValueError(f"Profile '{profile}' not found for project '{project}'")
+    return PROJECT_PROFILES_CONFIGS[project][profile]
+
+def get_ipyrad_config(wildcards):
+    """Get shared ipyrad config for demultiplex/filter steps."""
+    project = get_project_from_path(wildcards.project_dir)
+    return get_project_shared_ipyrad(project)
+
+def get_proj_config(wildcards):
+    """Backward-compatible alias used by scripts and params."""
+    return get_profile_config(wildcards)
+
+def get_assembly_step_config(wildcards):
+    """
+    Config slice for merge/s3-s7 full-assembly steps.
+    Excludes unrelated keys (e.g., step7_subsets) so editing subset
+    definitions does not invalidate and rerun early assembly rules.
+    """
+    cfg = get_profile_config(wildcards)
+    return {
+        "project_dir": cfg["project_dir"],
+        "profile": cfg["profile"],
+        "ipyrad": cfg["ipyrad"],
+    }
+
+def get_all_libraries(wildcards):
+    """Get all libraries for a project"""
+    project = get_project_from_path(wildcards.project_dir)
+    return PROJECT_LIBRARIES[project]
+
+# ============================================================================
+# Helper Functions - Path List Builders
+# ============================================================================
+
+def get_library_jsons(wildcards):
+    """Get all demultiplexed JSON files for a project"""
+    libraries = get_all_libraries(wildcards)
+    return [
+        f"{wildcards.project_dir}/demultiplexed/{lib_id}/{info['name']}.json"
+        for lib_id, info in libraries.items()
+    ]
+
+def get_library_s2_stats(wildcards):
+    """Get all s2 stats files for a project"""
+    libraries = get_all_libraries(wildcards)
+    return [
+        f"{wildcards.project_dir}/demultiplexed/{lib_id}/{info['name']}_edits/s2_rawedit_stats.txt"
+        for lib_id, info in libraries.items()
+    ]
+
+def get_optimization_stats(wildcards):
+    """Get stats files for all optimization thresholds"""
+    profile_cfg = get_profile_config(wildcards)
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/"
+        f"{entry['assembly_name']}_outfiles/{entry['assembly_name']}_stats.txt"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_optimization_loci(wildcards):
+    """Get loci files for all optimization thresholds"""
+    profile_cfg = get_profile_config(wildcards)
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/"
+        f"{entry['assembly_name']}_outfiles/{entry['assembly_name']}.loci"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_optimization_jsons(wildcards):
+    """Get JSON files for all optimization thresholds"""
+    profile_cfg = get_profile_config(wildcards)
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/{entry['assembly_name']}.json"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_optimization_vcfs(wildcards):
+    """Get VCF files for all optimization thresholds"""
+    profile_cfg = get_profile_config(wildcards)
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/"
+        f"{entry['assembly_name']}_outfiles/{entry['assembly_name']}.vcf"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_optimization_hardy_reports(wildcards):
+    """Get HWE files for all optimization thresholds (optional - use ancient() in rule)"""
+    profile_cfg = get_profile_config(wildcards)
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/"
+        f"{entry['assembly_name']}_outfiles/qc/{entry['assembly_name']}.hardy.hwe"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_optimization_hardy_reports_ancient(wildcards):
+    """Get HWE files for all optimization thresholds (required - triggers qc_vcftools_hardy)"""
+    profile_cfg = get_profile_config(wildcards)
+    # Don't use ancient() - we want qc_vcftools_hardy to run for optimization assemblies
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/"
+        f"{entry['assembly_name']}_outfiles/qc/{entry['assembly_name']}.hardy.hwe"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_optimization_whoa_reports(wildcards):
+    """Get WHOA reports for all optimization thresholds."""
+    profile_cfg = get_profile_config(wildcards)
+    return [
+        f"{wildcards.project_dir}/optimization/{entry['assembly_name']}/"
+        f"{entry['assembly_name']}_outfiles/qc/{entry['assembly_name']}.whoa_report.txt"
+        for entry in get_optimization_threshold_entries(profile_cfg, wildcards.profile)
+    ]
+
+def get_replicate_suffix(wildcards):
+    """Single replicate suffix shared by optimization and QC rules."""
+    cfg = get_profile_config(wildcards)
+    qc = cfg.get("qc") or {}
+    opt = cfg.get("optimization") or {}
+    return qc.get("replicate_suffix") or opt.get("replicate_suffix", "_repl")
+
+def get_whoa_min_bin(wildcards):
+    """Lower WHOA bin size for small optimization VCFs."""
+    cfg = get_profile_config(wildcards)
+    qc = cfg.get("qc") or {}
+    if getattr(wildcards, "assembly_dir", "") == "optimization":
+        return qc.get("whoa_min_bin_optimization", 200)
+    return qc.get("whoa_min_bin", 1000)
+
+# ============================================================================
+# Helper Functions - Resource and Thread Management
+# ============================================================================
+
+def get_clust_threshold(wildcards):
+    """Get clustering threshold - checks optimization assemblies first, then project config
+    Always returns a float (e.g., 0.85) for ipyrad, even if config uses integers (e.g., 85)"""
+    project = get_project_from_path(wildcards.project_dir)
+    profile = get_profile_name(wildcards)
+    threshold_key = (project, profile, wildcards.assembly_name)
+    if threshold_key in ASSEMBLY_THRESHOLDS:
+        return ASSEMBLY_THRESHOLDS[threshold_key]
+    project = get_project_from_path(wildcards.project_dir)
+    profile_cfg = get_profile_config(wildcards)
+    threshold = profile_cfg["ipyrad"]["clust_threshold"]
+    return normalize_threshold_value(threshold, context=f"{project}.{profile}.ipyrad.clust_threshold")
+
+def count_samples_from_json(json_path):
+    """Read sample count from JSON file"""
+    import json
+    try:
+        if os.path.exists(json_path):
+            with open(json_path, 'r') as f:
+                return len(json.load(f).get('samples', {}))
+    except Exception:
+        pass
+    return None
+
+def count_samples_from_barcode(barcode_path):
+    """Count non-empty lines in barcode file"""
+    try:
+        if os.path.exists(barcode_path):
+            with open(barcode_path, 'r') as f:
+                return sum(1 for line in f if line.strip())
+    except Exception:
+        pass
+    return None
+
+def get_sample_count(step_name, wildcards):
+    """Get sample count based on step type"""
+    if not wildcards:
+        return None
+
+    # For s1: count from barcode file
+    if step_name == "s1_demultiplexing" and hasattr(wildcards, 'lib_id'):
+        project = get_project_from_path(wildcards.project_dir)
+        barcode = PROJECT_LIBRARIES[project][wildcards.lib_id]['barcode']
+        return count_samples_from_barcode(barcode)
+
+    # For s2: count from s1 JSON
+    elif hasattr(wildcards, 'lib_id'):
+        json_path = f"{wildcards.project_dir}/demultiplexed/{wildcards.lib_id}/{wildcards.lib_name}.json"
+        return count_samples_from_json(json_path)
+
+    # For s3-s7: count from merged assembly JSON
+    elif hasattr(wildcards, 'assembly_name'):
+        json_path = f"{wildcards.project_dir}/{wildcards.assembly_dir}/{wildcards.assembly_name}/{wildcards.assembly_name}.json"
+        return count_samples_from_json(json_path)
+
+    return None
+
+def get_threads(step_name, wildcards=None):
+    """Get thread count for a step, handling dynamic 'samples' allocation"""
+    thread_config = config["resources"][step_name]["threads"]
+    max_cpus = config["resources"]["max_cpus"]
+
+    # Static allocation
+    if isinstance(thread_config, int):
+        return min(thread_config, max_cpus)
+
+    # Dynamic "samples" allocation
+    if thread_config == "samples":
+        n_samples = get_sample_count(step_name, wildcards)
+        return min(n_samples or max_cpus, max_cpus)
+
+    # Fallback
+    return max_cpus
+
+# Helper function to get reference genome path
+def get_reference_path(wildcards):
+    """Get reference genome path for a project/profile."""
+    profile_cfg = get_profile_config(wildcards)
+    ipyrad_params = profile_cfg["ipyrad"]
+
+    # Only use reference if assembly_method is 'reference'
+    if ipyrad_params.get('assembly_method', 'denovo') != 'reference':
+        return None
+
+    # Check if reference_sequence is directly specified
+    if 'reference_sequence' in ipyrad_params and ipyrad_params['reference_sequence']:
+        return ipyrad_params['reference_sequence']
+
+    # Check if reference_assembly (NCBI accession) is specified
+    if 'reference_assembly' in ipyrad_params and ipyrad_params['reference_assembly']:
+        assembly_id = ipyrad_params['reference_assembly']
+        profile = get_profile_name(wildcards)
+        return f"{wildcards.project_dir}/reference/{profile}_{assembly_id}_genomic.fna"
+
+    return None
+
+# Helper function to get BWA index paths
+def get_reference_index(wildcards):
+    """Get BWA index path for a project (returns None if no reference)
+    Returns the .bwt file as the primary output, but all index files are created together"""
+    profile_cfg = get_profile_config(wildcards)
+    ipyrad_params = profile_cfg["ipyrad"]
+
+    # Only use reference if assembly_method is 'reference'
+    if ipyrad_params.get('assembly_method', 'denovo') != 'reference':
+        return None
+
+    # Check if reference_assembly (NCBI accession) is specified
+    if 'reference_assembly' in ipyrad_params and ipyrad_params['reference_assembly']:
+        assembly_id = ipyrad_params['reference_assembly']
+        profile = get_profile_name(wildcards)
+        return f"{wildcards.project_dir}/reference/{profile}_{assembly_id}_genomic.fna.bwt"
+
+    # If reference_sequence is directly specified, assume it's already indexed
+    # (user is responsible for indexing external references)
+    return None
+
+# Download reference genome from NCBI using official datasets tool
+rule download_reference:
+    message: "Downloading reference genome {params.assembly_id} (dataset.zip)"
+    output:
+        dataset_zip = temp("{project_dir}/reference/{profile}_{assembly_id}_dataset.zip")
+    params:
+        assembly_id = lambda wildcards: wildcards.assembly_id
+    threads: config["resources"]["download_reference"]["threads"]
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["download_reference"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/download_reference_{profile}_{assembly_id}.log"
+    shell:
+        """
+        datasets download genome accession {params.assembly_id} \
+            --filename {output.dataset_zip} \
+            2>&1 | tee -a {log}
+        """
+
+# Extract genomic.fna.gz from downloaded dataset
+rule extract_reference:
+    message: "Extracting genomic.fna.gz from dataset {wildcards.assembly_id}"
+    input:
+        dataset_zip = "{project_dir}/reference/{profile}_{assembly_id}_dataset.zip"
+    output:
+        fna_gz = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.gz"
+    threads: 1
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = 10
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/extract_reference_{profile}_{assembly_id}.log"
+    shell:
+        """
+        set -euo pipefail
+        TMP_DIR=$(mktemp -d)
+        trap "rm -rf $TMP_DIR" EXIT
+        
+        unzip -q {input.dataset_zip} -d "$TMP_DIR"
+        GENOME_FILE=$(find "$TMP_DIR" -name "*_genomic.fna*" | head -n 1)
+        if [[ "$GENOME_FILE" == *.gz ]]; then
+            mv "$GENOME_FILE" {output.fna_gz}
+        else
+            gzip -c "$GENOME_FILE" > {output.fna_gz}
+        fi
+        """
+
+# Decompress the genomic.fna.gz to .fna
+rule unzip_reference:
+    message: "Decompressing reference genome {wildcards.assembly_id}.fna.gz"
+    input:
+        fna_gz = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.gz"
+    output:
+        fna = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna"
+    threads: 1
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = 10
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/unzip_reference_{profile}_{assembly_id}.log"
+    shell:
+        """
+        gunzip -c {input.fna_gz} > {output.fna}
+        """
+
+# Index reference genome with BWA
+rule index_reference:
+    message: "Indexing reference genome {wildcards.assembly_id} with BWA"
+    input:
+        fna = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna"
+    output:
+        bwt = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.bwt",
+        amb = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.amb",
+        ann = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.ann",
+        pac = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.pac",
+        sa = "{project_dir}/reference/{profile}_{assembly_id}_genomic.fna.sa"
+    threads: 1
+    resources:
+        index_lock = 1,  # Prevent parallel indexing of the same reference
+        mem_mb = 30000,  # BWA indexing needs significant memory for large genomes
+        runtime = 60
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/index_reference_{profile}_{assembly_id}.log"
+    shell:
+        """
+        set -euo pipefail
+        bwa index {input.fna} 2>&1 | tee -a {log}
+        """
+
+
+# Step 1: Demultiplex each library (assign reads to samples)
+rule s1_demultiplex:
+    message: "Step 1 (demux): {params.library_name}"
+    input:
+        r1 = lambda w: get_lib_info(w)['r1'],
+        r2 = lambda w: get_lib_info(w)['r2'],
+        barcode = lambda w: get_lib_info(w)['barcode']
+    output:
+        json = "{project_dir}/demultiplexed/{lib_id}/{lib_name}.json",
+        stats = "{project_dir}/demultiplexed/{lib_id}/{lib_name}_fastqs/s1_demultiplex_stats.txt"
+    params:
+        library_name = lambda w: get_lib_info(w)['name'],
+        library_id = lambda w: w.lib_id,
+        raw_dir = lambda w: os.path.dirname(get_lib_info(w)['r1']),
+        project_dir = lambda w: w.project_dir,
+        demux_datatype = lambda w: get_ipyrad_config(w).get("datatype", "pair3rad"),
+        restriction_overhang = lambda w: tuple(get_ipyrad_config(w)["restriction_overhang"])
+    threads: lambda w: get_threads("s1_demultiplexing", w)
+    resources:
+        demux_lock = 1,
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s1_demultiplexing"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/step1_{lib_id}_{lib_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/step1_{lib_id}_{lib_name}.txt"
+    script:
+        "scripts/s1_demultiplex.py"
+
+# Step 2: Filter and trim reads
+rule s2_filter:
+    message: "Step 2 (filter): {params.library_name}"
+    input:
+        json = "{project_dir}/demultiplexed/{lib_id}/{lib_name}.json",
+        stats_s1 = "{project_dir}/demultiplexed/{lib_id}/{lib_name}_fastqs/s1_demultiplex_stats.txt"
+    output:
+        stats = "{project_dir}/demultiplexed/{lib_id}/{lib_name}_edits/s2_rawedit_stats.txt"
+    params:
+        library_name = lambda w: w.lib_name,
+        library_id = lambda w: w.lib_id,
+        json_path = lambda w: f"{w.project_dir}/demultiplexed/{w.lib_id}/{w.lib_name}.json",
+        demux_datatype = lambda w: get_ipyrad_config(w).get("datatype", "pair3rad"),
+        filter_adapters = lambda w: get_ipyrad_config(w)["filter_adapters"],
+        filter_min_trim_len = lambda w: get_ipyrad_config(w)["filter_min_trim_len"]
+    threads: lambda w: get_threads("s2_filtering", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s2_filtering"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/step2_{lib_id}_{lib_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/step2_{lib_id}_{lib_name}.txt"
+    script:
+        "scripts/s2_filter.py"
+
+# Export combined s2 stats for all samples in a project
+rule export_s2_stats:
+    message: "Exporting s2 stats for all samples"
+    input:
+        jsons = get_library_jsons,
+        s2_stats = get_library_s2_stats
+    output:
+        by_name = "{project_dir}/demultiplexed/s2_stats_by_sample.tsv",
+        by_reads = "{project_dir}/demultiplexed/s2_stats_by_reads.tsv"
+    threads: 1
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s2_filtering"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/export_s2_stats.log"
+    script:
+        "scripts/export_s2_stats.py"
+
+# Select subset of samples for optimization
+rule select_optimization_samples:
+    message: "Selecting optimization samples"
+    input:
+        jsons = get_library_jsons,
+        s2_stats = get_library_s2_stats
+    output:
+        sample_list = "{project_dir}/optimization/selected_samples_{profile}.txt",
+        report = "{project_dir}/optimization/sample_selection_report_{profile}.txt"
+    params:
+        project_config = get_proj_config
+    threads: lambda w: get_threads("select_optimization_samples", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["select_optimization_samples"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/select_optimization_samples_{profile}.log"
+    benchmark:
+        "{project_dir}/benchmarks/select_optimization_samples_{profile}.txt"
+    script:
+        "scripts/select_optimization_samples.py"
+
+# Step 3: Merge libraries (with optional sample filtering)
+# Note: Depends on step 2 outputs (_s2.json files are outputs of s2_filter rule)
+rule merge_assemblies:
+    message: "Merging libraries → {wildcards.assembly_name}"
+    input:
+        s2_stats = get_library_s2_stats,
+        sample_list = lambda w: ancient(
+            f"{w.project_dir}/optimization/selected_samples_{get_profile_name(w)}.txt"
+        ) if w.assembly_dir == "optimization" else [],
+        reference = lambda w: get_reference_path(w) or []
+    output:
+        json = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}.json",
+        merge_done = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}.merge_done"
+    params:
+        jsons = get_library_jsons,
+        project_config = get_assembly_step_config,
+        assembly_name = lambda w: w.assembly_name,
+        threshold = get_clust_threshold
+    threads: lambda w: get_threads("merge_assemblies", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["merge_assemblies"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/merge_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/merge_{assembly_dir}_{assembly_name}.txt"
+    script:
+        "scripts/merge_assemblies.py"
+
+# Step 3: Clustering within samples
+# Output directory will be named {assembly_name}_clust_0.XX (ipyrad creates this automatically)
+rule s3_clustering_within:
+    message: "Step 3: Clustering within ({wildcards.assembly_name})"
+    input:
+        # This file is only written by merge_assemblies.
+        # If merge reruns and rewrites {assembly}.json, this timestamp changes and
+        # s3 reruns even though the JSON input itself is marked ancient().
+        merge_done = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}.merge_done",
+        # Use ancient() to ignore JSON timestamp - later steps (s4-s7) update the JSON
+        # which would otherwise trigger unnecessary s3 reruns
+        json = ancient("{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}.json"),
+        reference = lambda w: get_reference_path(w) or [],
+        reference_index = lambda w: get_reference_index(w) or []
+    output:
+        stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_clust_{clust_thresh}/s3_cluster_stats.txt"
+    params:
+        project_config = get_assembly_step_config,
+        threshold = get_clust_threshold,
+        json_path = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}.json"
+    threads: lambda w: get_threads("s3_clustering_within", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s3_clustering_within"]["runtime"]
+    conda:
+        CONDA_ENV
+    wildcard_constraints:
+        clust_thresh = r"0\.\d+"
+    log:
+        "{project_dir}/logs/clustering_within_{assembly_dir}_{assembly_name}_{clust_thresh}.log"
+    benchmark:
+        "{project_dir}/benchmarks/clustering_within_{assembly_dir}_{assembly_name}_{clust_thresh}.txt"
+    script:
+        "scripts/s3_clustering_within.py"
+
+# Step 4: Joint estimation
+rule s4_joint_estimation:
+    message: "Step 4: Joint estimation ({wildcards.assembly_name})"
+    input:
+        s3_stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_clust_{clust_thresh}/s3_cluster_stats.txt",
+        reference = lambda w: get_reference_path(w) or []
+    output:
+        stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_clust_{clust_thresh}/s4_joint_estimate.txt"
+    params:
+        project_config = get_assembly_step_config,
+        json_path = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}.json"
+    threads: lambda w: get_threads("s4_joint_estimation", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s4_joint_estimation"]["runtime"]
+    conda:
+        CONDA_ENV
+    wildcard_constraints:
+        clust_thresh = r"0\.\d+"
+    log:
+        "{project_dir}/logs/joint_estimation_{assembly_dir}_{assembly_name}_{clust_thresh}.log"
+    benchmark:
+        "{project_dir}/benchmarks/joint_estimation_{assembly_dir}_{assembly_name}_{clust_thresh}.txt"
+    script:
+        "scripts/s4_joint_estimation.py"
+
+# Step 5: Consensus calling
+rule s5_consensus_calling:
+    message: "Step 5: Consensus calling ({wildcards.assembly_name})"
+    input:
+        s4_stats = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}_clust_{get_clust_threshold(w)}/s4_joint_estimate.txt",
+        reference = lambda w: get_reference_path(w) or []
+    output:
+        stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_consens/s5_consens_stats.txt"
+    params:
+        project_config = get_assembly_step_config,
+        json_path = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}.json"
+    threads: lambda w: get_threads("s5_consensus_calling", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s5_consensus_calling"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/consensus_calling_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/consensus_calling_{assembly_dir}_{assembly_name}.txt"
+    script:
+        "scripts/s5_consensus_calling.py"
+
+# Step 6: Clustering across samples
+rule s6_clustering_across:
+    message: "Step 6: Clustering across ({wildcards.assembly_name})"
+    input:
+        s5_stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_consens/s5_consens_stats.txt",
+        reference = lambda w: get_reference_path(w) or [],
+        reference_index = lambda w: get_reference_index(w) or []
+    output:
+        stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_across/s6_cluster_stats.txt"
+    params:
+        project_config = get_assembly_step_config,
+        json_path = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}.json"
+    threads: lambda w: get_threads("s6_clustering_across", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s6_clustering_across"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/clustering_across_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/clustering_across_{assembly_dir}_{assembly_name}.txt"
+    script:
+        "scripts/s6_clustering_across.py"
+
+# Step 7: Filter and export
+rule s7_filter_export:
+    message: "Step 7: Export loci ({wildcards.assembly_name})"
+    input:
+        s6_stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_across/s6_cluster_stats.txt",
+        reference = lambda w: get_reference_path(w) or []
+    output:
+        loci = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.loci",
+        stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}_stats.txt",
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf"
+    params:
+        project_config = get_assembly_step_config,
+        json_path = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}.json"
+    threads: lambda w: get_threads("s7_filter_export", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s7_filter_export"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/filter_export_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/filter_export_{assembly_dir}_{assembly_name}.txt"
+    script:
+        "scripts/s7_filter_export.py"
+
+# Step 7: Filter and export - Subsets (parallel execution)
+rule s7_filter_export_subset:
+    message: "Step 7: Export subset {wildcards.subset_name} ({wildcards.assembly_name})"
+    input:
+        # Depend on step 6 completion of the main assembly only.
+        # This lets new subset definitions run without touching main step 7 outputs.
+        s6_stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_across/s6_cluster_stats.txt",
+        json_path = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}.json"
+    output:
+        loci = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/{assembly_name}_{subset_name}.loci",
+        stats = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/{assembly_name}_{subset_name}_stats.txt",
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/{assembly_name}_{subset_name}.vcf"
+    params:
+        project_config = get_proj_config,
+        json_path = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}.json"
+    threads: lambda w: get_threads("s7_filter_export", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s7_filter_export"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/filter_export_subset_{assembly_dir}_{assembly_name}_{subset_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/filter_export_subset_{assembly_dir}_{assembly_name}_{subset_name}.txt"
+    script:
+        "scripts/s7_filter_export_subset.py"
+
+# ============================================================================
+# Quality Control Rules
+# ============================================================================
+
+# Rule to install whoa package once (qc_whoa rule depends on this)
+rule install_whoa:
+    output:
+        touch(".snakemake/whoa_installed")
+    conda:
+        CONDA_ENV
+    shell:
+        """
+        Rscript -e 'if (!require("whoa", quietly = TRUE)) install.packages("whoa", repos = "https://cloud.r-project.org/")'
+        """
+
+# Rule to run whoa (Where's my Heterozygotes at?) QC analysis
+rule qc_whoa:
+    message: "QC: WHOA analysis for {wildcards.assembly_name}"
+    input:
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf",
+        whoa_installed = ".snakemake/whoa_installed"
+    output:
+        posteriors = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.whoa_posteriors.rds",
+        plot = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.whoa_plot.pdf",
+        report = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.whoa_report.txt"
+    params:
+        project_config = get_proj_config,
+        min_bin = get_whoa_min_bin
+    threads: lambda w: get_threads("qc_whoa", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_whoa"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_whoa_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_whoa_{assembly_dir}_{assembly_name}.txt"
+    shell:
+        """
+        Rscript workflow/scripts/run_whoa_qc.R \
+            --vcf {input.vcf} \
+            --posteriors {output.posteriors} \
+            --plot {output.plot} \
+            --report {output.report} \
+            --min-bin {params.min_bin} &> {log}
+        """
+
+# Pairwise shared-loci matrix from .loci (failed libs / plate effects / mislabels)
+rule qc_shared_loci:
+    message: "QC: Shared-loci matrix for {wildcards.assembly_name}"
+    input:
+        loci = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.loci"
+    output:
+        matrix = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.shared_loci.tsv",
+        heatmap = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.shared_loci_heatmap.pdf"
+    threads: lambda w: get_threads("qc_shared_loci", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_shared_loci"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_shared_loci_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_shared_loci_{assembly_dir}_{assembly_name}.txt"
+    shell:
+        """
+        python workflow/scripts/shared_loci_matrix.py \
+            --loci {input.loci} \
+            --matrix {output.matrix} \
+            --heatmap {output.heatmap} &> {log}
+        """
+
+# Rule to analyze technical replicates
+rule qc_replicates:
+    message: "QC: Replicate analysis for {wildcards.assembly_name}"
+    input:
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf"
+    output:
+        report = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.replicate_analysis.txt"
+    params:
+        project_config = get_proj_config,
+        suffix = get_replicate_suffix
+    threads: lambda w: get_threads("qc_replicates", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_replicates"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_replicates_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_replicates_{assembly_dir}_{assembly_name}.txt"
+    shell:
+        """
+        python workflow/scripts/vcf_analyze_replicates.py \
+            --input {input.vcf} \
+            --suffix {params.suffix} \
+            --output {output.report} &> {log}
+        """
+
+# Rule to run vcftools Hardy-Weinberg equilibrium test
+rule qc_vcftools_hardy:
+    message: "QC: Hardy-Weinberg test for {wildcards.assembly_name}"
+    input:
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf"
+    output:
+        hwe = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.hardy.hwe"
+    params:
+        out_prefix = lambda w: f"{w.project_dir}/{w.assembly_dir}/{w.assembly_name}/{w.assembly_name}_outfiles/qc/{w.assembly_name}.hardy"
+    threads: lambda w: get_threads("qc_vcftools_hardy", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_vcftools_hardy"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_vcftools_hardy_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_vcftools_hardy_{assembly_dir}_{assembly_name}.txt"
+    shell:
+        """
+        vcftools --vcf {input.vcf} \
+            --hardy \
+            --out {params.out_prefix} &> {log}
+        """
+
+# Rule to summarize Hardy-Weinberg equilibrium test results
+# Only runs for full assemblies (not optimization - optimization_comparison handles that)
+rule qc_hardy_summary:
+    message: "QC: Hardy-Weinberg summary for {wildcards.assembly_name}"
+    input:
+        hwe = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.hardy.hwe",
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf"
+    output:
+        report = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.hardy_report.txt"
+    params:
+        assembly_dir = lambda w: w.assembly_dir
+    threads: lambda w: get_threads("qc_hardy_summary", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_hardy_summary"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_hardy_summary_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_hardy_summary_{assembly_dir}_{assembly_name}.txt"
+    shell:
+        """
+        if [ "{params.assembly_dir}" != "full" ]; then
+            echo "Skipping qc_hardy_summary for optimization assembly (handled by optimization_comparison)"
+            touch {output.report}
+        else
+            python workflow/scripts/summarize_hardy.py \
+                --input {input.hwe} \
+                --vcf {input.vcf} \
+                --output {output.report} &> {log}
+        fi
+        """
+
+# Rule to generate simple QC report
+rule unified_qc_report:
+    message: "QC: Generating report for {wildcards.assembly_name}"
+    input:
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf",
+        loci = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.loci",
+        hardy_hwe = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.hardy.hwe",
+        hardy_report = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.hardy_report.txt",
+        whoa_report = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.whoa_report.txt",
+        whoa_plot = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.whoa_plot.pdf",
+        replicate_report = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.replicate_analysis.txt",
+        shared_matrix = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.shared_loci.tsv",
+        shared_heatmap = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.shared_loci_heatmap.pdf"
+    output:
+        report = "{project_dir}/{assembly_dir}/{assembly_name}/qc_report.txt",
+        csv = "{project_dir}/{assembly_dir}/{assembly_name}/qc/qc_metrics.csv",
+        pdf = "{project_dir}/{assembly_dir}/{assembly_name}/qc/supp_fig2_assembly_qc.pdf"
+    params:
+        project_config = get_proj_config,
+        replicate_suffix = get_replicate_suffix
+    threads: 1
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s7_filter_export"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/unified_qc_report_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/unified_qc_report_{assembly_dir}_{assembly_name}.txt"
+    script:
+        "scripts/report_final.py"
+
+# Rule to compare optimization assemblies across thresholds
+rule optimization_comparison:
+    message: "Comparing optimization assemblies across thresholds"
+    input:
+        jsons = get_optimization_jsons,
+        vcfs = get_optimization_vcfs,
+        hardy_reports = get_optimization_hardy_reports_ancient,
+        loci = get_optimization_loci,
+        whoa_reports = get_optimization_whoa_reports
+    output:
+        csv = "{project_dir}/optimization/optimization_sample_stats_{profile}.csv",
+        vcf_csv = "{project_dir}/optimization/optimization_sample_stats_vcf_{profile}.csv",
+        hwe_csv = "{project_dir}/optimization/optimization_hwe_stats_{profile}.csv",
+        replicate_csv = "{project_dir}/optimization/optimization_replicate_stats_{profile}.csv",
+        pdf = "{project_dir}/optimization/optimization_comparison_{profile}.pdf",
+        supp_pdf = "{project_dir}/optimization/supp_fig1_threshold_selection_{profile}.pdf"
+    params:
+        project_config = get_proj_config,
+        thresholds = lambda w: get_proj_config(w)["optimization"]["thresholds"],
+        replicate_suffix = get_replicate_suffix
+    threads: 1
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["s7_filter_export"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/optimization_comparison_{profile}.log"
+    benchmark:
+        "{project_dir}/benchmarks/optimization_comparison_{profile}.txt"
+    script:
+        "scripts/report_optimization.py"
+

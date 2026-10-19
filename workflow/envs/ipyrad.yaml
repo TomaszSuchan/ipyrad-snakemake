@@ -1,0 +1,20 @@
+name: ipyrad
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python<3.12
+  - ipyrad>=0.9.107
+  - ncbi-datasets-cli  # Official NCBI tool for downloading genomes
+  - pandas
+  - vcfpy
+  - vcftools
+  - scipy
+  - scikit-learn
+  - matplotlib
+  - joypy
+  - r-base
+  - r-tidyverse
+  # Note: whoa is a CRAN package not available via conda
+  # Install it separately using: R -e 'install.packages("whoa")'

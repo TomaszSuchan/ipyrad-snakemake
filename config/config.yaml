@@ -4,146 +4,299 @@
 # Computational resources (shared across all projects)
 # For SLURM: memory = mem_per_cpu * threads
 resources:
-  max_cpus: 10  # Maximum CPUs available (adjust based on your cluster/machine)
+  max_cpus: 48  # Maximum CPUs available (adjust based on your cluster/machine)
   mem_per_cpu: 3850  # Memory per CPU in MB (default for ARES cluster)
 
-  # When threads: "samples", the pipeline uses as many cores as the number of samples capped at max_cpus
-  # You can slso set a fixed number of threads for each step
-  # Low-intensity management tasks use 1 core
-
   s1_demultiplexing:
-    threads: "samples"  # Use number of samples as thread count
+    threads: "samples"
     runtime: 30  # minutes
 
   s2_filtering:
-    threads: "samples"  # Use number of samples as thread count
+    threads: "samples"
     runtime: 30  # minutes
 
   select_optimization_samples:
-    threads: 1  # Low-intensity: sample selection
-    runtime: 5  # minutes
-
+    threads: 1
+    runtime: 20  # minutes
+  
   merge_assemblies:
-    threads: 1  # Low-intensity: merging JSON metadata
-    runtime: 10  # minutes
+    threads: 4
+    runtime: 15  # minutes
 
   s3_clustering_within:
-    threads: "samples"  # Use number of samples as thread count
-    runtime: 300  # minutes (5 hours) - most intensive step
+    threads: 48
+    runtime: 1200  # minutes (20 hours) - most intensive step
 
   s4_joint_estimation:
-    threads: "samples"  # Use number of samples as thread count
+    threads: "samples"
     runtime: 90  # minutes
 
   s5_consensus_calling:
-    threads: "samples"  # Use number of samples as thread count
+    threads: "samples"
     runtime: 120  # minutes
 
   s6_clustering_across:
-    threads: "samples"  # Use number of samples as thread count
+    threads: "samples"
     runtime: 240  # minutes (4 hours)
 
   s7_filter_export:
-    threads: "samples"  # Use number of samples as thread count
+    threads: "samples"
     runtime: 120  # minutes
 
   download_reference:
     threads: 1  # Low-intensity: network download
-    runtime: 120  # minutes (2 hours) - increased for large genomes
+    runtime: 120  # minutes (1 hour)
 
-# Projects - species-level project roots with shared demultiplexed outputs.
-# Shared data is written once to: <project_dir>/demultiplexed/
-# Per-assembly outputs are isolated by assembly names:
-#   <project_dir>/full/<assembly_name>/...
-#   <project_dir>/optimization/<assembly_name>/...
-# Backward compatibility: legacy flat keys still work.
-# - shared step1/2 key: ipyrad_step12 (preferred) or ipyrad (legacy)
-# - legacy single-profile keys: workflow/optimization/ipyrad
+# Projects - define multiple independent assemblies
+# Each project will be processed in its own directory
+# Note: The project key (e.g., "Pap") is used as the assembly name in output files
 projects:
-
-  # Example project
-  Pmi_test:
+  Pap-ref:
+  #Pap:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
     library_prefixes:
-      - "/Users/ibpan/Pmi-test/1st_seq/Pmi_RAD02a"
-      - "/Users/ibpan/Pmi-test/2nd_seq/Pmi_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD02b"
 
-    project_dir: "Pmi_test"
-
-    # Shared demultiplex/filter settings for steps 1-2 (must match across profiles)
-    # Datatype options (ipyrad): rad, gbs, 2brad, ddrad, pairddrad, pairgbs, pair3rad
-    # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
-    # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
-    ipyrad_step12:
-      datatype: "pair3rad"            # Used in step 1-2 (demultiplex/filter)
+    # Output directory for this project
+    project_dir: "Parnassius_apollo-ref"
+    #project_dir: "Parnassius_apollo"
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
       restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
       filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
       filter_min_trim_len: 35         # Min read length after trimming
 
-    assemblies:
-      denovo:
-        # ipyrad parameters for this assembly profile (steps 3-7)
-        ipyrad:
-          datatype: "pairddrad"        # Used in assembly steps (3-7)
-          assembly_method: "denovo"    # Options: "denovo", "reference"
-          clust_threshold: 0.85        # Similarity threshold for clustering
-          mindepth_statistical: 6      # Min depth for statistical base calling
-          mindepth_majrule: 6          # Min depth for majority rule base calling
-          max_Ns_consens: 0.05         # Max proportion of Ns in consensus (0.0-1.0)
-          max_Hs_consens: 0.05         # Max heterozygosity in consensus (0.0-1.0)
-          max_alleles_consens: 2       # Ploidy (2=diploid, 4=tetraploid)
-          min_samples_percent: 50      # Min % of samples for a locus
-          # Output formats (single letter codes, no separators):
-          # p: PHYLIP(full), s: PHYLIP(SNPs), u: PHYLIP(one SNP/locus)
-          # n: NEXUS, k: STRUCTURE, g: EIGENSTRAT, G: G-PhoCS, v: VCF
-          output_formats: "pv"
-        # Per-profile workflow toggles
-        workflow:
-          run_optimization: true       # Test multiple clustering thresholds
-          run_full_assembly: false     # Run full assembly
-        # Optimization settings (used if run_optimization=true)
-        optimization:
-          n_samples: 10                # Number of samples to test
-          replicate_suffix: "_repl"    # Pattern to identify replicates
-          remove_bottom_percent: 20    # Remove lowest X% by read count
-          random_seed: 42              # Reproducible sampling
-          samples: null                # Or specify: ["sample1", "sample2"]
-          use_replicates: true         # Include all replicates
-          thresholds: [0.80, 0.85]     # Proportions (preferred). Legacy percent ints still supported.
-        # Optional QC overrides (replicate_suffix defaults to optimization.replicate_suffix)
-        # qc:
-        #   replicate_suffix: "_repl"
-        #   whoa_min_bin: 1000
-        #   whoa_min_bin_optimization: 200
-        # Step 7 subsets (optional - create separate outputs for sample groups)
-        # Example:
-        #   east_africa: "Pmi_TZA3-01 Pmi_TZA3-02 Pmi_TZA4-05"
-        #   west_africa: "Pmi_TWY4-01 Pmi_TWY4-04 Pmi_TWY7-01"
-        step7_subsets: {}
+      # Clustering (steps 3-6)
+      clust_threshold: 85           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "reference"       # Options: "denovo", "reference" 
+      reference_assembly: "GCA_907164705.1"
 
-      reference:
-        # Same params as denovo profile, but with reference assembly method
-        ipyrad:
-          datatype: "pairddrad"
-          assembly_method: "reference"
-          # reference_sequence: "/path/to/reference.fasta"
-          # reference_assembly: "GCA_900128785.1"
-          clust_threshold: 0.85
-          mindepth_statistical: 6
-          mindepth_majrule: 6
-          max_Ns_consens: 0.05
-          max_Hs_consens: 0.05
-          max_alleles_consens: 2
-          min_samples_percent: 50
-          output_formats: "pv"
-        workflow:
-          run_optimization: false
-          run_full_assembly: false
-        optimization:
-          n_samples: 10
-          replicate_suffix: "_repl"
-          remove_bottom_percent: 20
-          random_seed: 42
-          samples: null
-          use_replicates: true
-          thresholds: [0.80, 0.85]
-        step7_subsets: {}
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "v"
+      
+    # Workflow control
+    workflow:
+      run_optimization: false         # Test multiple clustering thresholds
+      run_full_assembly: true         # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [85, 87, 89, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets: {}
+    # Example:
+    #   east_africa: "Pmi_TZA3-01 Pmi_TZA3-02 Pmi_TZA4-05"
+    #   west_africa: "Pmi_TWY4-01 Pmi_TWY4-04 Pmi_TWY7-01"
+
+  Csr:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04d"
+
+    # Output directory for this project
+    project_dir: "Campanula_serrata"
+
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+      restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+      # Clustering (steps 3-6)
+      clust_threshold: 90           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "denovo"       # Options: "denovo", "reference" 
+
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "v"
+
+    # Workflow control
+    workflow:
+      run_optimization: true         # Test multiple clustering thresholds
+      run_full_assembly: false        # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [85, 87, 89, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets: {}
+    # Example:
+    #   east_africa: "Pmi_TZA3-01 Pmi_TZA3-02 Pmi_TZA4-05"
+    #   west_africa: "Pmi_TWY4-01 Pmi_TWY4-04 Pmi_TWY7-01"
+
+  Doc:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10b"
+      #FAILED LIBS
+      #- "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10c"
+      #- "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14d"
+
+    # Output directory for this project
+    project_dir: "Dryas_octopetala"
+
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+      restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+      # Clustering (steps 3-6)
+      clust_threshold: 85           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "reference"       # Options: "denovo", "reference" 
+      reference_assembly: "GCA_963921425.1"
+
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "v"
+
+    # Workflow control
+    workflow:
+      run_optimization: false         # Test multiple clustering thresholds
+      run_full_assembly: true        # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [85, 87, 89, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets: {}
+    # Example:
+    #   east_africa: "Pmi_TZA3-01 Pmi_TZA3-02 Pmi_TZA4-05"
+    #   west_africa: "Pmi_TWY4-01 Pmi_TWY4-04 Pmi_TWY7-01"
+    
+

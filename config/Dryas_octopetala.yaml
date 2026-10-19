@@ -1,0 +1,165 @@
+# Configuration for ipyrad Snakemake pipeline
+# Supports multiple independent projects with different settings
+
+# Computational resources (shared across all projects)
+# For SLURM: memory = mem_per_cpu * threads
+resources:
+  max_cpus: 48  # Maximum CPUs available (adjust based on your cluster/machine)
+  mem_per_cpu: 3850  # Memory per CPU in MB (default for ARES cluster)
+
+  s1_demultiplexing:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  s2_filtering:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  select_optimization_samples:
+    threads: 1
+    runtime: 20  # minutes
+  
+  merge_assemblies:
+    threads: 4
+    runtime: 15  # minutes
+
+  s3_clustering_within:
+    threads: 48
+    runtime: 1200  # minutes (20 hours) - most intensive step
+
+  s4_joint_estimation:
+    threads: "samples"
+    runtime: 90  # minutes
+
+  s5_consensus_calling:
+    threads: 48
+    runtime: 4320  # minutes
+
+  s6_clustering_across:
+    threads: 48
+    runtime: 4320  # minutes (4 hours)
+
+  s7_filter_export:
+    threads: 24
+    runtime: 600  # minutes
+
+  download_reference:
+    threads: 1  # Low-intensity: network download
+    runtime: 120  # minutes (1 hour)
+
+# Projects - define multiple independent assemblies
+# Each project will be processed in its own directory
+# Note: The project key (e.g., "Pap") is used as the assembly name in output files
+projects:
+  Doc:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD06d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD07d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD09d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10b"
+      #FAILED LIBS
+      #- "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10c"
+      #- "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_22WCN2LT3_L1/Doc_RAD10d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD03d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD04d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233H2CLT3_L2/Doc_RAD05d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD02d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD08d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD11d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_233VM7LT3_L4/Doc_RAD12d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Doc_RAD13d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Doc_RAD14d"
+
+    # Output directory for this project
+    project_dir: "Dryas_octopetala"
+
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+      restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+      # Clustering (steps 3-6)
+      clust_threshold: 85           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "reference"       # Options: "denovo", "reference" 
+      reference_assembly: "GCA_963921425.1"
+
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "v"
+
+    # Workflow control
+    workflow:
+      run_optimization: false         # Test multiple clustering thresholds
+      run_full_assembly: true        # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [85, 87, 89, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets:
+       Europe: "Doc_ABI-01,Doc_ABI-02,Doc_ABI-03,Doc_ABI-04,Doc_ABI-05,Doc_AGN-01,Doc_AGN-02,Doc_AGN-03,Doc_AGN-04,Doc_AGN-05,Doc_AKU-01,Doc_AKU-02,Doc_AKU-03,Doc_AKU-04,Doc_AKU-05,Doc_AND-01,Doc_AND-02,Doc_AND-03,Doc_AND-04,Doc_AND-05,Doc_ANE-01,Doc_ANE-02,Doc_ANE-03,Doc_ANE-04,Doc_ANE-05,Doc_BAK-01,Doc_BAK-02,Doc_BAK-03,Doc_BAK-04,Doc_BAK-05,Doc_BIG-01,Doc_BIG-02,Doc_BIG-03,Doc_BIG-04,Doc_BIG-05,Doc_BOB-06,Doc_BOB-07,Doc_BOB-08,Doc_BOB-09,Doc_BOB-10,Doc_BON-01,Doc_BON-02,Doc_BON-03,Doc_BON-3,Doc_Br-10,Doc_Br-11,Doc_Br-12,Doc_Br-16,Doc_Br-17,Doc_CER-07,Doc_CER-08,Doc_CER-09,Doc_CER-10,Doc_CER-11,Doc_CLD-01,Doc_CLD-02,Doc_CLD-03,Doc_CLD-04,Doc_CLD-05,Doc_CLU-01,Doc_CLU-02,Doc_CLU-03,Doc_CLU-04,Doc_CLU-05,Doc_CVA-02,Doc_CVA-03,Doc_CVA-04,Doc_CVA-05,Doc_CVA-06,Doc_CVR-01,Doc_CVR-02,Doc_CVR-03,Doc_CVR-04,Doc_CVR-05,Doc_DOV-01,Doc_DOV-02,Doc_DOV-03,Doc_DOV-04,Doc_DOV-05,Doc_DUR-02,Doc_DUR-03,Doc_DUR-04,Doc_DUR-05,Doc_DUR-06,Doc_E61d-07,Doc_E61d-08,Doc_E61d-09,Doc_E61d-10,Doc_E61d-11,Doc_EA81494-01,Doc_EA81494-02,Doc_EA81494-03,Doc_EA81494-04,Doc_EA81494-05,Doc_EA81571-01,Doc_EA81571-02,Doc_EA81571-03,Doc_EA81571-04,Doc_EA81571-06,Doc_EA82483-02,Doc_EA82483-03,Doc_EA82483-04,Doc_EA82483-05,Doc_EA82483-06,Doc_EA82602-03,Doc_EA82602-04,Doc_EA82602-05,Doc_EA82602-06,Doc_EA82602-07,Doc_EA82612-07,Doc_EA82612-08,Doc_EA82612-09,Doc_EA82612-10,Doc_EA82612-11,Doc_EA83443-04,Doc_EA83443-05,Doc_EA83443-06,Doc_EA83443-07,Doc_EA83443-09,Doc_EA83583-04,Doc_EA83583-05,Doc_EA83583-06,Doc_EA83583-07,Doc_EA83583-08,Doc_EA84401-07,Doc_EA84401-08,Doc_EA84401-09,Doc_EA84401-10,Doc_EA84401-11,Doc_EA85362-01,Doc_EA85362-02,Doc_EA85362-03,Doc_EA85362-04,Doc_EA85362-05,Doc_EA85462-04,Doc_EA85462-05,Doc_EA85462-06,Doc_EA85462-07,Doc_EA85462-08,Doc_EA85462-09,Doc_EA85491-01,Doc_EA85491-02,Doc_EA85491-03,Doc_EA85491-04,Doc_EA85491-05,Doc_EA85534-05,Doc_EA85534-06,Doc_EA85534-07,Doc_EA85534-08,Doc_EA85534-09,Doc_EA85554-02,Doc_EA85554-03,Doc_EA85554-04,Doc_EA85554-05,Doc_EA85554-06,Doc_EA86261-06,Doc_EA86261-07,Doc_EA86261-08,Doc_EA86261-09,Doc_EA86261-10,Doc_EA86291-02,Doc_EA86291-03,Doc_EA86291-04,Doc_EA86291-05,Doc_EA86291-06,Doc_EA86332-02,Doc_EA86332-03,Doc_EA86332-04,Doc_EA86332-05,Doc_EA86332-06,Doc_EA86401-06,Doc_EA86401-07,Doc_EA86401-08,Doc_EA86401-09,Doc_EA86401-10,Doc_EA86582-05,Doc_EA86582-06,Doc_EA86582-07,Doc_EA86582-08,Doc_EA86582-09,Doc_EA87242-02,Doc_EA87242-03,Doc_EA87242-04,Doc_EA87242-05,Doc_EA87242-06,Doc_EA87384-01,Doc_EA87384-02,Doc_EA87384-03,Doc_EA87384-04,Doc_EA87384-05,Doc_EA87441-02,Doc_EA87441-03,Doc_EA87441-04,Doc_EA87441-05,Doc_EA87441-06,Doc_EA87512-04,Doc_EA87512-05,Doc_EA87512-06,Doc_EA87512-07,Doc_EA87512-08,Doc_EA89244-03,Doc_EA89244-04,Doc_EA89244-05,Doc_EA89244-06,Doc_EA89244-07,Doc_EA89341-03,Doc_EA89341-04,Doc_EA89341-06,Doc_EA89341-07,Doc_EA89341-09,Doc_EA89363-01,Doc_EA89363-02,Doc_EA89363-03,Doc_EA89363-04,Doc_EA89363-05,Doc_EA89394-01,Doc_EA89394-02,Doc_EA89394-03,Doc_EA89394-04,Doc_EA89394-05,Doc_EA89413-02,Doc_EA89413-03,Doc_EA89413-04,Doc_EA89413-05,Doc_EA89413-06,Doc_EA89462-06,Doc_EA89462-07,Doc_EA89462-08,Doc_EA89462-09,Doc_EA89462-10,Doc_EA89514-02,Doc_EA89514-03,Doc_EA89514-04,Doc_EA89514-05,Doc_EA89514-06,Doc_EA90282-06,Doc_EA90282-07,Doc_EA90282-08,Doc_EA90282-09,Doc_EA90282-10,Doc_EA90432-04,Doc_EA90432-05,Doc_EA90432-06,Doc_EA90432-07,Doc_EA90432-08,Doc_EA90493-06,Doc_EA90493-07,Doc_EA90493-08,Doc_EA90493-09,Doc_EA90493-10,Doc_EA91323-03,Doc_EA91323-04,Doc_EA91323-05,Doc_EA91323-06,Doc_EA91323-07,Doc_EA92414-04,Doc_EA92414-05,Doc_EA92414-06,Doc_EA92414-07,Doc_EA92414-08,Doc_EA93483-07,Doc_EA93483-08,Doc_EA93483-09,Doc_EA93483-10,Doc_EA93483-11,Doc_EA94524-01,Doc_EA94524-02,Doc_EA94524-03,Doc_EA94524-11,Doc_EA95511-02,Doc_EA95511-03,Doc_EA95511-05,Doc_EA95511-06,Doc_EA95511-07,Doc_EAS-01,Doc_EAS-02,Doc_EAS-03,Doc_EAS-04,Doc_EAS-05,Doc_END-01,Doc_END-02,Doc_END-03,Doc_END-04,Doc_END-05,Doc_F62a-06,Doc_F62a-07,Doc_F62a-08,Doc_F62a-09,Doc_F62a-10,Doc_F62b-03,Doc_F62b-04,Doc_F62b-05,Doc_F62b-06,Doc_F62b-07,Doc_F64d-06,Doc_F64d-07,Doc_F64d-08,Doc_F64d-09,Doc_F64d-10,Doc_FAE-01,Doc_FAE-02,Doc_FAE-03,Doc_FAE-04,Doc_FAE-05,Doc_FAL-01,Doc_FAL-02,Doc_FAL-03,Doc_FAL-04,Doc_FAL-05,Doc_FUR-01,Doc_FUR-02,Doc_FUR-03,Doc_FUR-04,Doc_FUR-05,Doc_GAL-01,Doc_GAL-02,Doc_GAL-03,Doc_GAL-04,Doc_GAL-05,Doc_GAV-03,Doc_GAV-04,Doc_GAV-05,Doc_GAV-06,Doc_GAV-07,Doc_GBO-01,Doc_GBO-02,Doc_GBO-03,Doc_GBO-04,Doc_GBO-05,Doc_GOR-01,Doc_GOR-02,Doc_GOR-03,Doc_GOR-04,Doc_GOR-05,Doc_GRI-01,Doc_GRI-02,Doc_GRI-03,Doc_GRI-04,Doc_GRI-05,Doc_GSL-01,Doc_GSL-02,Doc_GSL-03,Doc_GSL-04,Doc_GSL-05,Doc_HAR-01,Doc_HAR-02,Doc_HAR-03,Doc_HAR-04,Doc_HAR-05,Doc_HOL-01,Doc_HOL-02,Doc_HOL-03,Doc_HOL-04,Doc_HOL-05,Doc_I65b-03,Doc_I65b-04,Doc_I65b-05,Doc_I65b-06,Doc_I65b-07,Doc_ISE-01,Doc_ISE-02,Doc_ISE-03,Doc_ISE-04,Doc_IZO-01,Doc_IZO-02,Doc_IZO-03,Doc_IZO-04,Doc_IZO-05,Doc_J65a-08,Doc_J65a-09,Doc_J65a-10,Doc_J65a-11,Doc_J65a-12,Doc_JAK-07,Doc_JAK-08,Doc_JAK-09,Doc_JAK-10,Doc_JAK-11,Doc_JAK-12,Doc_JAK-13,Doc_JAK-14,Doc_JAK-15,Doc_JAK-16,Doc_JOT-01,Doc_JOT-02,Doc_JOT-03,Doc_JOT-04,Doc_JOT-05,Doc_K58c-04,Doc_K58c-05,Doc_K58c-06,Doc_K58c-07,Doc_K58c-08,Doc_KLV-01,Doc_KLV-02,Doc_KLV-03,Doc_KLV-04,Doc_KLV-05,Doc_KOL-01,Doc_KOL-02,Doc_KOL-03,Doc_KOL-04,Doc_KPS-01,Doc_KPS-02,Doc_KPS-03,Doc_KPS-04,Doc_KPS-05,Doc_KVA-05,Doc_KVA-06,Doc_KVA-07,Doc_KVA-08,Doc_KVA-09,Doc_L56b-01,Doc_L56b-02,Doc_L56b-03,Doc_L56b-04,Doc_L56b-05,Doc_LJU-11,Doc_LJU-12,Doc_LJU-13,Doc_LJU-14,Doc_LJU-16,Doc_MAL-01,Doc_MAL-02,Doc_MAL-03,Doc_MAL-04,Doc_MAL-05,Doc_MAL-2,Doc_MAL-3,Doc_MK-0050,Doc_MK-0062,Doc_MK-0105,Doc_MK-0106,Doc_NUV-01,Doc_NUV-02,Doc_O61d-08,Doc_O61d-09,Doc_O61d-10,Doc_O61d-11,Doc_O61d-12,Doc_O62c-06,Doc_O62c-07,Doc_O62c-08,Doc_O62c-09,Doc_O62c-10,Doc_OFE-01,Doc_OFE-02,Doc_OFE-03,Doc_OFE-04,Doc_OFE-05,Doc_ORI-01,Doc_ORI-02,Doc_ORI-03,Doc_ORI-04,Doc_ORI-05,Doc_P61a-11,Doc_P61a-12,Doc_P61a-13,Doc_P61a-14,Doc_P61a-15,Doc_P62a-01,Doc_P62a-02,Doc_P62a-03,Doc_P62a-04,Doc_P62a-05,Doc_P62a-06,Doc_P62d-01,Doc_P62d-03,Doc_P62d-04,Doc_P62d-05,Doc_P62d-06,Doc_P63b-07,Doc_P63b-08,Doc_P63b-09,Doc_P63b-10,Doc_P63b-12,Doc_P63d-05,Doc_P63d-06,Doc_P63d-07,Doc_P63d-08,Doc_P63d-09,Doc_P64b-02,Doc_P64b-03,Doc_P64b-04,Doc_P64b-05,Doc_P64b-07,Doc_P64c-01,Doc_P64c-02,Doc_P64c-03,Doc_P64c-04,Doc_P64c-05,Doc_P65b-04,Doc_P65b-05,Doc_P65b-06,Doc_P65b-07,Doc_P65b-08,Doc_P65d-03,Doc_P65d-04,Doc_P65d-05,Doc_P65d-06,Doc_P65d-07,Doc_PRO-02,Doc_PRO-03,Doc_PRO-04,Doc_PRO-05,Doc_PRO-06,Doc_Q56b-02,Doc_Q56b-04,Doc_Q56b-05,Doc_Q56b-06,Doc_Q56b-08,Doc_Q56d-05,Doc_Q56d-06,Doc_Q56d-07,Doc_Q56d-08,Doc_Q56d-09,Doc_Q58b-06,Doc_Q58b-07,Doc_Q58b-08,Doc_Q58b-09,Doc_Q58b-10,Doc_Q60c-02,Doc_Q60c-03,Doc_Q60c-04,Doc_Q60c-05,Doc_Q60c-06,Doc_Q64a-01,Doc_Q64a-02,Doc_Q64a-03,Doc_Q64a-04,Doc_Q64a-05,Doc_RHO-01,Doc_RIL-05,Doc_RIL-06,Doc_RIL-07,Doc_RIL-08,Doc_RIL-09,Doc_RLK-01,Doc_RLK-02,Doc_RLK-03,Doc_RLK-04,Doc_RLK-05,Doc_RMC-01,Doc_RMC-02,Doc_RMC-03,Doc_RMC-04,Doc_RMC-05,Doc_RNN-01,Doc_RNN-02,Doc_RNN-03,Doc_RNN-04,Doc_RNN-05,Doc_RPE-01,Doc_RPE-02,Doc_RPE-03,Doc_RPE-04,Doc_RPE-05,Doc_RPE-1,Doc_STA-01,Doc_STA-02,Doc_STA-03,Doc_STA-04,Doc_STA-05,Doc_SUV-10,Doc_SUV-11,Doc_SUV-12,Doc_SUV-13,Doc_SUV-14,Doc_SVA-01,Doc_SVA-02,Doc_SVA-03,Doc_SVA-04,Doc_SVA-05,Doc_THV-01,Doc_THV-02,Doc_THV-03,Doc_THV-04,Doc_THV-05,Doc_TOR-01,Doc_TOR-02,Doc_TOR-03,Doc_TOR-04,Doc_TOR-05,Doc_TRM-01,Doc_TRM-02,Doc_TRM-03,Doc_TRM-04,Doc_TRM-05,Doc_UMB-01,Doc_UMB-02,Doc_UMB-03,Doc_UMB-04,Doc_UMB-05,Doc_VAR-01,Doc_VAR-02,Doc_VAR-03,Doc_VAR-04,Doc_VBO-01,Doc_VBO-02,Doc_VBO-03,Doc_VBO-04,Doc_VBO-05,Doc_ZER-01,Doc_ZER-02,Doc_ZER-03,Doc_ZER-04,Doc_ZER-05,Dpu_KOL-01,Dpu_KOL-02,Dpu_KOL-03,Dpu_KOL-04,Dpu_KOL-05,Doc_CHVD226-01,Doc_CHVD226-02,Doc_CHVD226-03,Doc_CHVD226-04,Doc_CHVD226-05,Doc_CHVD226-06,Doc_CHVD226-07,Doc_CHVD226-08,Doc_CHVD226-09,Doc_CHVD226-10,Doc_SMO-04,Doc_SMO-07,Doc_SMO-10,Doc_SMO-13,Doc_SMO-14,Doc_CZW-07,Doc_CZW-08,Doc_CZW-09,Doc_CZW-10,Doc_CZW-11,Doc_MEN-04,Doc_MEN-05,Doc_MEN-06,Doc_MEN-07,Doc_MEN-08,Doc_KRK-01,Doc_KRK-05,Doc_KRK-06,Doc_KRK-07,Doc_KRK-08"
+       CHVD: "Doc_CHVD163-01,Doc_CHVD163-02,Doc_CHVD163-03,Doc_CHVD163-04,Doc_CHVD163-05,Doc_CHVD163-06,Doc_CHVD163-07,Doc_CHVD163-08,Doc_CHVD163-09,Doc_CHVD163-10,Doc_CHVD163-11,Doc_CHVD163-12,Doc_CHVD163-13,Doc_CHVD163-14,Doc_CHVD182-01,Doc_CHVD182-02,Doc_CHVD182-03,Doc_CHVD182-04,Doc_CHVD182-05,Doc_CHVD182-06,Doc_CHVD182-07,Doc_CHVD182-08,Doc_CHVD182-09,Doc_CHVD182-10,Doc_CHVD182-11,Doc_CHVD182-12,Doc_CHVD182-15,Doc_CHVD182-16,Doc_CHVD182-17,Doc_CHVD182-18,Doc_CHVD182-20,Doc_CHVD182-20_repl09d,Doc_CHVD183-01,Doc_CHVD183-02,Doc_CHVD183-03,Doc_CHVD183-04,Doc_CHVD183-05,Doc_CHVD183-06,Doc_CHVD183-07,Doc_CHVD183-08,Doc_CHVD183-09,Doc_CHVD183-11,Doc_CHVD183-12,Doc_CHVD183-13,Doc_CHVD183-14,Doc_CHVD183-15,Doc_CHVD183-16,Doc_CHVD186-01,Doc_CHVD186-02,Doc_CHVD186-03,Doc_CHVD186-04,Doc_CHVD186-05,Doc_CHVD186-06,Doc_CHVD186-07,Doc_CHVD186-08,Doc_CHVD186-10,Doc_CHVD186-11,Doc_CHVD186-12,Doc_CHVD204A-01,Doc_CHVD204A-02,Doc_CHVD204A-03,Doc_CHVD204A-04,Doc_CHVD204A-05,Doc_CHVD204A-06,Doc_CHVD204A-07,Doc_CHVD204A-08,Doc_CHVD204A-09,Doc_CHVD204A-10,Doc_CHVD204A-11,Doc_CHVD204A-13,Doc_CHVD204A-14,Doc_CHVD204A-15,Doc_CHVD204A-16,Doc_CHVD204A-17,Doc_CHVD204A-18,Doc_CHVD204A-20,Doc_CHVD211-01,Doc_CHVD211-09,Doc_CHVD211-10,Doc_CHVD211-11,Doc_CHVD211-12,Doc_CHVD211-13,Doc_CHVD211-14,Doc_CHVD211-15,Doc_CHVD211-16,Doc_CHVD211-17,Doc_CHVD211-18,Doc_CHVD211-19,Doc_CHVD211-20,Doc_CHVD212-01,Doc_CHVD212-02,Doc_CHVD212-03,Doc_CHVD212-04,Doc_CHVD212-06,Doc_CHVD212-07,Doc_CHVD212-08,Doc_CHVD212-09,Doc_CHVD212-10,Doc_CHVD212-11,Doc_CHVD212-12,Doc_CHVD226-01,Doc_CHVD226-02,Doc_CHVD226-03,Doc_CHVD226-04,Doc_CHVD226-05,Doc_CHVD226-06,Doc_CHVD226-07,Doc_CHVD226-08,Doc_CHVD226-09,Doc_CHVD226-10,Doc_CHVD226-11,Doc_CHVD226-12,Doc_CHVD226-13,Doc_CHVD226-14,Doc_CHVD226-15,Doc_CHVD226-16,Doc_CHVD226-17,Doc_CHVD226-18,Doc_CHVD226-19,Doc_CHVD226-20,Doc_CHVD228-01,Doc_CHVD228-02,Doc_CHVD228-03,Doc_CHVD228-04,Doc_CHVD228-05,Doc_CHVD228-06,Doc_CHVD228-07,Doc_CHVD228-08,Doc_CHVD228-09,Doc_CHVD228-10,Doc_CHVD228-11,Doc_CHVD228-12,Doc_CHVD228-13,Doc_CHVD228-14,Doc_CHVD228-15,Doc_CHVD228-16,Doc_CHVD228-17,Doc_CHVD228-19,Doc_CHVD228-20,Doc_CHVD232-01,Doc_CHVD232-05,Doc_CHVD232-06,Doc_CHVD232-07,Doc_CHVD232-08,Doc_CHVD232-09,Doc_CHVD232-10,Doc_CHVD232-11,Doc_CHVD232-12,Doc_CHVD232-13,Doc_CHVD232-14,Doc_CHVD232-15,Doc_CHVD232-16,Doc_CHVD232-17,Doc_CHVD232-18,Doc_CHVD232-19,Doc_CHVD232-20,Doc_CHVD234-01,Doc_CHVD234-02,Doc_CHVD234-03,Doc_CHVD234-07,Doc_CHVD234-08,Doc_CHVD234-09,Doc_CHVD234-10,Doc_CHVD234-11,Doc_CHVD234-12,Doc_CHVD234-13,Doc_CHVD234-14,Doc_CHVD234-15,Doc_CHVD234-16,Doc_CHVD234-17,Doc_CHVD234-18,Doc_CHVD234-19,Doc_CHVD234-20,Doc_CHVD235-01,Doc_CHVD235-02,Doc_CHVD235-03,Doc_CHVD235-04,Doc_CHVD235-05,Doc_CHVD235-06,Doc_CHVD235-07,Doc_CHVD235-08,Doc_CHVD235-09,Doc_CHVD235-10,Doc_CHVD235-11,Doc_CHVD235-12,Doc_CHVD235-13,Doc_CHVD235-14,Doc_CHVD235-15,Doc_CHVD235-16,Doc_CHVD235-17,Doc_CHVD235-18,Doc_CHVD235-19,Doc_CHVD235-20,Doc_CHVD240-01,Doc_CHVD240-02,Doc_CHVD240-03,Doc_CHVD240-04,Doc_CHVD240-05,Doc_CHVD240-06,Doc_CHVD240-07,Doc_CHVD240-08,Doc_CHVD240-09,Doc_CHVD240-10,Doc_CHVD240-11,Doc_CHVD240-12,Doc_CHVD240-13,Doc_CHVD240-14,Doc_CHVD240-15,Doc_CHVD240-16,Doc_CHVD240-17,Doc_CHVD240-18,Doc_CHVD240-19,Doc_CHVD240-20,Doc_CHVD243-01,Doc_CHVD243-02,Doc_CHVD243-03,Doc_CHVD243-04,Doc_CHVD243-05,Doc_CHVD243-06,Doc_CHVD243-07,Doc_CHVD243-08,Doc_CHVD243-09,Doc_CHVD243-10,Doc_CHVD243-11,Doc_CHVD243-11_repl11c,Doc_CHVD243-12,Doc_CHVD243-13,Doc_CHVD243-14,Doc_CHVD243-15,Doc_CHVD243-16,Doc_CHVD243-17,Doc_CHVD243-18,Doc_CHVD243-19,Doc_CHVD243-20,Doc_CHVD244-01,Doc_CHVD244-02,Doc_CHVD244-03,Doc_CHVD244-04,Doc_CHVD244-05,Doc_CHVD244-06,Doc_CHVD244-07,Doc_CHVD244-08,Doc_CHVD244-09,Doc_CHVD244-10,Doc_CHVD244-11,Doc_CHVD244-12,Doc_CHVD244-13,Doc_CHVD244-14,Doc_CHVD244-15,Doc_CHVD244-16,Doc_CHVD244-17,Doc_CHVD244-18,Doc_CHVD244-19,Doc_CHVD244-19_repl12b,Doc_CHVD246-01,Doc_CHVD246-02,Doc_CHVD246-03,Doc_CHVD246-04,Doc_CHVD246-05,Doc_CHVD246-06,Doc_CHVD246-07,Doc_CHVD246-08,Doc_CHVD246-09,Doc_CHVD246-10,Doc_CHVD246-11,Doc_CHVD246-12,Doc_CHVD246-13,Doc_CHVD246-14,Doc_CHVD246-15,Doc_CHVD246-16,Doc_CHVD246-17,Doc_CHVD246-18,Doc_CHVD246-19,Doc_CHVD246-20,Doc_CHVD249-01,Doc_CHVD249-02,Doc_CHVD249-03,Doc_CHVD249-04,Doc_CHVD249-05,Doc_CHVD249-06,Doc_CHVD249-07,Doc_CHVD249-08,Doc_CHVD249-09,Doc_CHVD249-10,Doc_CHVD249-11,Doc_CHVD249-12,Doc_CHVD249-13,Doc_CHVD249-14,Doc_CHVD249-15,Doc_CHVD249-16,Doc_CHVD249-17,Doc_CHVD249-18,Doc_CHVD249-19,Doc_CHVD249-20,Doc_CHVD250-01,Doc_CHVD250-02,Doc_CHVD250-03,Doc_CHVD250-04,Doc_CHVD250-05,Doc_CHVD250-06,Doc_CHVD250-07,Doc_CHVD250-08,Doc_CHVD250-09,Doc_CHVD250-10,Doc_CHVD250-11,Doc_CHVD275-01,Doc_CHVD275-02,Doc_CHVD275-03,Doc_CHVD275-04,Doc_CHVD275-05,Doc_CHVD275-06,Doc_CHVD275-07,Doc_CHVD275-08,Doc_CHVD275-09,Doc_CHVD275-10,Doc_CHVD275-11,Doc_CHVD275-12,Doc_CHVD275-13,Doc_CHVD275-14,Doc_CHVD275-15,Doc_CHVD275-16,Doc_CHVD275-17,Doc_CHVD275-18,Doc_CHVD275-19,Doc_CHVD275-20,Doc_CHVD299-01,Doc_CHVD299-02,Doc_CHVD299-03,Doc_CHVD299-04,Doc_CHVD299-05,Doc_CHVD299-06,Doc_CHVD299-07,Doc_CHVD299-08,Doc_CHVD299-09,Doc_CHVD299-10,Doc_CHVD299-11,Doc_CHVD299-12,Doc_CHVD299-13,Doc_CHVD299-14,Doc_CHVD299-15,Doc_CHVD299-16,Doc_CHVD299-17,Doc_CHVD299-18,Doc_CHVD299-19,Doc_CHVD299-20"
+       WestCarp: "Doc_BAR-01,Doc_BAR-02,Doc_BAR-03,Doc_BAR-04,Doc_BAR-05,Doc_BAR-06,Doc_BAR-07,Doc_BAR-08,Doc_BAR-09,Doc_BAR-10,Doc_BBR-04,Doc_BBR-05,Doc_BBR-06,Doc_BBR-07,Doc_BBR-08,Doc_BBR-09,Doc_BBR-10,Doc_BBR-11,Doc_BBR-12,Doc_BBR-13,Doc_CHL-01,Doc_CHL-02,Doc_CHL-03,Doc_CHL-04,Doc_CHL-05,Doc_CHL-06,Doc_CHL-07,Doc_CHL-08,Doc_CHL-09,Doc_CHL-10,Doc_CHO-05,Doc_CHO-06,Doc_CHO-07,Doc_CHO-08,Doc_CHO-09,Doc_CHO-10,Doc_CHO-11,Doc_CHO-12,Doc_CHO-18,Doc_CHO-19,Doc_CIE-05,Doc_CIE-06,Doc_CIE-07,Doc_CIE-08,Doc_CIE-09,Doc_CIE-10,Doc_CIE-11,Doc_CIE-12,Doc_CIE-13,Doc_CIE-14,Doc_CZW-07,Doc_CZW-08,Doc_CZW-09,Doc_CZW-10,Doc_CZW-11,Doc_CZW-12,Doc_CZW-13,Doc_CZW-14,Doc_CZW-15,Doc_CZW-16,Doc_DWI-01,Doc_DWI-02,Doc_DWI-03,Doc_DWI-04,Doc_DWI-05,Doc_DWI-06,Doc_DWI-07,Doc_DWI-08,Doc_DWI-09,Doc_DWI-10,Doc_HIN-01,Doc_HIN-02,Doc_HIN-03,Doc_HIN-05,Doc_JAT-01,Doc_JAT-02,Doc_JAT-03,Doc_JAT-04,Doc_JAT-05,Doc_JAT-06,Doc_JAT-07,Doc_JAT-15,Doc_JAT-16,Doc_JAT-17,Doc_KMN-04,Doc_KMN-05,Doc_KMN-06,Doc_KMN-07,Doc_KMN-08,Doc_KMN-09,Doc_KMN-10,Doc_KMN-11,Doc_KMN-12,Doc_KMN-13,Doc_KOS-03,Doc_KOS-04,Doc_KOS-06,Doc_KOS-07,Doc_KOS-08,Doc_KOS-09,Doc_KOS-10,Doc_KOS-11,Doc_KOS-12,Doc_KOS-13,Doc_KRK-01,Doc_KRK-05,Doc_KRK-06,Doc_KRK-07,Doc_KRK-08,Doc_KRK-10,Doc_KRK-11,Doc_KRK-12,Doc_KRK-13,Doc_KRK-14,Doc_LIL-01,Doc_LIL-02,Doc_LIL-03,Doc_LIL-04,Doc_LIL-05,Doc_MAG-02,Doc_MAG-03,Doc_MAG-04,Doc_MAG-05,Doc_MAG-06,Doc_MAG-07,Doc_MAG-08,Doc_MAG-09,Doc_MAG-10,Doc_MAG-11,Doc_MEN-04,Doc_MEN-05,Doc_MEN-06,Doc_MEN-07,Doc_MEN-08,Doc_MEN-09,Doc_MEN-10,Doc_MEN-11,Doc_MEN-12,Doc_MEN-13,Doc_NEF-01,Doc_NEF-02,Doc_NEF-03,Doc_NEF-04,Doc_NEF-05,Doc_NEF-06,Doc_NEF-07,Doc_NEF-08,Doc_NEF-09,Doc_NEF-10,Doc_NEF-11,Doc_NEF-12,Doc_NEF-13,Doc_NEF-14,Doc_NEF-15,Doc_OPW-01,Doc_OPW-02,Doc_OPW-03,Doc_OPW-04,Doc_OPW-05,Doc_OPW-06,Doc_OPW-07,Doc_OPW-08,Doc_OPW-09,Doc_OPW-10,Doc_RAC-01,Doc_RAC-02,Doc_RAC-03,Doc_RAC-04,Doc_RAC-05,Doc_ROZ-03,Doc_ROZ-04,Doc_ROZ-05,Doc_ROZ-06,Doc_ROZ-07,Doc_ROZ-08,Doc_ROZ-09,Doc_ROZ-10,Doc_ROZ-11,Doc_ROZ-12,Doc_SIV-06,Doc_SIV-07,Doc_SIV-09,Doc_SIV-10,Doc_SIV-12,Doc_SIV-13,Doc_SIV-14,Doc_SIV-15,Doc_SIV-16,Doc_SMO-04,Doc_SMO-05,Doc_SMO-06,Doc_SMO-07,Doc_SMO-08,Doc_SMO-09,Doc_SMO-10,Doc_SMO-11,Doc_SMO-12,Doc_SMO-13,Doc_SMO-14,Doc_SMO-15,Doc_SSK-03,Doc_SSK-04,Doc_SSK-05,Doc_SSK-06,Doc_SSK-07,Doc_SSK-08,Doc_SSK-09,Doc_SSK-10,Doc_SSK-11,Doc_SSK-12,Doc_SUL-01,Doc_SUL-02,Doc_SUL-03,Doc_SUL-04,Doc_SUL-05,Doc_SUL-06,Doc_SUL-07,Doc_SUL-08,Doc_SUL-09,Doc_SUL-10,Doc_SUP-01,Doc_SUP-02,Doc_SUP-03,Doc_SUP-04,Doc_SUP-05,Doc_SUP-06,Doc_SUP-07,Doc_SUP-08,Doc_SUP-09,Doc_SUP-10,Doc_SZP-01,Doc_SZP-02,Doc_SZP-03,Doc_SZP-04,Doc_SZP-05,Doc_TRI-07,Doc_TRI-09,Doc_TRI-10,Doc_TRI-11,Doc_TRI-12,Doc_TRI-13,Doc_TRI-14,Doc_TRI-15,Doc_TRI-16,Doc_TRI-17,Doc_VER-02,Doc_VER-03,Doc_VER-04,Doc_VER-05,Doc_VER-06,Doc_VER-07,Doc_VER-08,Doc_VER-09,Doc_VER-10,Doc_VER-12"
+       WestCarpCalc: "Doc_BBR-04,Doc_BBR-05,Doc_BBR-06,Doc_BBR-07,Doc_BBR-08,Doc_BBR-09,Doc_BBR-10,Doc_BBR-11,Doc_BBR-12,Doc_BBR-13,Doc_CHL-01,Doc_CHL-02,Doc_CHL-03,Doc_CHL-04,Doc_CHL-05,Doc_CHL-06,Doc_CHL-07,Doc_CHL-08,Doc_CHL-09,Doc_CHL-10,Doc_CHO-05,Doc_CHO-06,Doc_CHO-07,Doc_CHO-08,Doc_CHO-09,Doc_CHO-10,Doc_CHO-11,Doc_CHO-12,Doc_CHO-18,Doc_CHO-19,Doc_CIE-05,Doc_CIE-06,Doc_CIE-07,Doc_CIE-08,Doc_CIE-09,Doc_CIE-10,Doc_CIE-11,Doc_CIE-12,Doc_CIE-13,Doc_CIE-14,Doc_CZW-07,Doc_CZW-08,Doc_CZW-09,Doc_CZW-10,Doc_CZW-11,Doc_CZW-12,Doc_CZW-13,Doc_CZW-14,Doc_CZW-15,Doc_CZW-16,Doc_JAT-01,Doc_JAT-02,Doc_JAT-03,Doc_JAT-04,Doc_JAT-05,Doc_JAT-06,Doc_JAT-07,Doc_JAT-15,Doc_JAT-16,Doc_JAT-17,Doc_KMN-04,Doc_KMN-05,Doc_KMN-06,Doc_KMN-07,Doc_KMN-08,Doc_KMN-09,Doc_KMN-10,Doc_KMN-11,Doc_KMN-12,Doc_KMN-13,Doc_KOS-03,Doc_KOS-04,Doc_KOS-06,Doc_KOS-07,Doc_KOS-08,Doc_KOS-09,Doc_KOS-10,Doc_KOS-11,Doc_KOS-13,Doc_KRK-01,Doc_KRK-05,Doc_KRK-06,Doc_KRK-07,Doc_KRK-08,Doc_KRK-10,Doc_KRK-11,Doc_KRK-12,Doc_KRK-13,Doc_KRK-14,Doc_LIL-02,Doc_LIL-03,Doc_MAG-02,Doc_MAG-03,Doc_MAG-04,Doc_MAG-05,Doc_MAG-06,Doc_MAG-07,Doc_MAG-08,Doc_MAG-09,Doc_MAG-10,Doc_MAG-11,Doc_ROZ-03,Doc_ROZ-04,Doc_ROZ-05,Doc_ROZ-06,Doc_ROZ-07,Doc_ROZ-08,Doc_ROZ-09,Doc_ROZ-10,Doc_ROZ-11,Doc_ROZ-12,Doc_SIV-06,Doc_SIV-07,Doc_SIV-09,Doc_SIV-10,Doc_SIV-12,Doc_SIV-13,Doc_SIV-14,Doc_SIV-15,Doc_SIV-16,Doc_SMO-04,Doc_SMO-07,Doc_SMO-10,Doc_SMO-13,Doc_SMO-14,Doc_SSK-03,Doc_SSK-04,Doc_SSK-05,Doc_SSK-06,Doc_SSK-07,Doc_SSK-08,Doc_SSK-09,Doc_SSK-10,Doc_SSK-11,Doc_SSK-12,Doc_SUL-01,Doc_SUL-02,Doc_SUL-03,Doc_SUL-04,Doc_SUL-05,Doc_SUL-06,Doc_SUL-07,Doc_SUL-08,Doc_SUL-09,Doc_SUL-10,Doc_SUP-01,Doc_SUP-03,Doc_SUP-04,Doc_SUP-05,Doc_SUP-06,Doc_SUP-07,Doc_SUP-08,Doc_SUP-09,Doc_SUP-10,Doc_TRI-07,Doc_TRI-09,Doc_TRI-10,Doc_TRI-11,Doc_TRI-12,Doc_TRI-13,Doc_TRI-14,Doc_TRI-15,Doc_TRI-16,Doc_TRI-17,Doc_VER-02,Doc_VER-03,Doc_VER-05,Doc_VER-07,Doc_VER-08,Doc_VER-10,Doc_VER-12"
+       WestCarpMyl: "Doc_BAR-01,Doc_BAR-02,Doc_BAR-05,Doc_BAR-06,Doc_BAR-07,Doc_BAR-09,Doc_DWI-01,Doc_DWI-03,Doc_DWI-04,Doc_DWI-05,Doc_DWI-06,Doc_DWI-09,Doc_DWI-10,Doc_HIN-01,Doc_HIN-02,Doc_HIN-05,Doc_MEN-04,Doc_MEN-05,Doc_MEN-06,Doc_MEN-07,Doc_MEN-08,Doc_MEN-09,Doc_MEN-10,Doc_MEN-11,Doc_MEN-12,Doc_MEN-13,Doc_NEF-01,Doc_NEF-02,Doc_NEF-03,Doc_NEF-04,Doc_NEF-05,Doc_NEF-06,Doc_NEF-07,Doc_NEF-08,Doc_NEF-09,Doc_NEF-10,Doc_NEF-11,Doc_NEF-12,Doc_NEF-13,Doc_NEF-14,Doc_NEF-15,Doc_OPW-02,Doc_OPW-03,Doc_OPW-04,Doc_OPW-05,Doc_OPW-06,Doc_OPW-08,Doc_OPW-09,Doc_OPW-10,Doc_RAC-02,Doc_RAC-03,Doc_SZP-01,Doc_SZP-02,Doc_SZP-03,Doc_SZP-05"
+       Tatra: "Doc_BAR-01,Doc_BAR-02,Doc_BAR-03,Doc_BAR-04,Doc_BAR-05,Doc_BAR-06,Doc_BAR-07,Doc_BAR-08,Doc_BAR-09,Doc_BAR-10,Doc_BBR-04,Doc_BBR-05,Doc_BBR-06,Doc_BBR-07,Doc_BBR-08,Doc_BBR-09,Doc_BBR-10,Doc_BBR-11,Doc_BBR-12,Doc_BBR-13,Doc_CIE-05,Doc_CIE-06,Doc_CIE-07,Doc_CIE-08,Doc_CIE-09,Doc_CIE-10,Doc_CIE-11,Doc_CIE-12,Doc_CIE-13,Doc_CIE-14,Doc_CZW-07,Doc_CZW-08,Doc_CZW-09,Doc_CZW-10,Doc_CZW-11,Doc_CZW-12,Doc_CZW-13,Doc_CZW-14,Doc_CZW-15,Doc_CZW-16,Doc_DWI-01,Doc_DWI-02,Doc_DWI-03,Doc_DWI-04,Doc_DWI-05,Doc_DWI-06,Doc_DWI-07,Doc_DWI-08,Doc_DWI-09,Doc_DWI-10,Doc_HIN-01,Doc_HIN-02,Doc_HIN-03,Doc_HIN-05,Doc_JAT-01,Doc_JAT-02,Doc_JAT-03,Doc_JAT-04,Doc_JAT-05,Doc_JAT-06,Doc_JAT-07,Doc_JAT-15,Doc_JAT-16,Doc_JAT-17,Doc_KMN-04,Doc_KMN-05,Doc_KMN-06,Doc_KMN-07,Doc_KMN-08,Doc_KMN-09,Doc_KMN-10,Doc_KMN-11,Doc_KMN-12,Doc_KMN-13,Doc_KOS-03,Doc_KOS-04,Doc_KOS-06,Doc_KOS-07,Doc_KOS-08,Doc_KOS-09,Doc_KOS-10,Doc_KOS-11,Doc_KOS-12,Doc_KOS-13,Doc_LIL-01,Doc_LIL-02,Doc_LIL-03,Doc_LIL-04,Doc_LIL-05,Doc_MAG-02,Doc_MAG-03,Doc_MAG-04,Doc_MAG-05,Doc_MAG-06,Doc_MAG-07,Doc_MAG-08,Doc_MAG-09,Doc_MAG-10,Doc_MAG-11,Doc_MEN-04,Doc_MEN-05,Doc_MEN-06,Doc_MEN-07,Doc_MEN-08,Doc_MEN-09,Doc_MEN-10,Doc_MEN-11,Doc_MEN-12,Doc_MEN-13,Doc_NEF-01,Doc_NEF-02,Doc_NEF-03,Doc_NEF-04,Doc_NEF-05,Doc_NEF-06,Doc_NEF-07,Doc_NEF-08,Doc_NEF-09,Doc_NEF-10,Doc_NEF-11,Doc_NEF-12,Doc_NEF-13,Doc_NEF-14,Doc_NEF-15,Doc_OPW-01,Doc_OPW-02,Doc_OPW-03,Doc_OPW-04,Doc_OPW-05,Doc_OPW-06,Doc_OPW-07,Doc_OPW-08,Doc_OPW-09,Doc_OPW-10,Doc_RAC-01,Doc_RAC-02,Doc_RAC-03,Doc_RAC-04,Doc_RAC-05,Doc_SIV-06,Doc_SIV-07,Doc_SIV-09,Doc_SIV-10,Doc_SIV-12,Doc_SIV-13,Doc_SIV-14,Doc_SIV-15,Doc_SIV-16,Doc_SSK-03,Doc_SSK-04,Doc_SSK-05,Doc_SSK-06,Doc_SSK-07,Doc_SSK-08,Doc_SSK-09,Doc_SSK-10,Doc_SSK-11,Doc_SSK-12,Doc_SUP-01,Doc_SUP-02,Doc_SUP-03,Doc_SUP-04,Doc_SUP-05,Doc_SUP-06,Doc_SUP-07,Doc_SUP-08,Doc_SUP-09,Doc_SUP-10,Doc_SZP-01,Doc_SZP-02,Doc_SZP-03,Doc_SZP-04,Doc_SZP-05,Doc_TRI-07,Doc_TRI-09,Doc_TRI-10,Doc_TRI-11,Doc_TRI-12,Doc_TRI-13,Doc_TRI-14,Doc_TRI-15,Doc_TRI-16,Doc_TRI-17"

@@ -1,0 +1,128 @@
+# Configuration for ipyrad Snakemake pipeline
+# Supports multiple independent projects with different settings
+
+# Computational resources (shared across all projects)
+# For SLURM: memory = mem_per_cpu * threads
+resources:
+  max_cpus: 48  # Maximum CPUs available (adjust based on your cluster/machine)
+  mem_per_cpu: 3850  # Memory per CPU in MB (default for ARES cluster)
+
+  s1_demultiplexing:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  s2_filtering:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  select_optimization_samples:
+    threads: 1
+    runtime: 20  # minutes
+  
+  merge_assemblies:
+    threads: 4
+    runtime: 15  # minutes
+
+  s3_clustering_within:
+    threads: 48
+    runtime: 4320  # minutes (20 hours) - most intensive step
+
+  s4_joint_estimation:
+    threads: "samples"
+    runtime: 90  # minutes
+
+  s5_consensus_calling:
+    threads: "samples"
+    runtime: 4320  # minutes
+
+  s6_clustering_across:
+    threads: "samples"
+    runtime: 240  # minutes (4 hours)
+
+  s7_filter_export:
+    threads: "samples"
+    runtime: 480  # minutes
+
+  download_reference:
+    threads: 1  # Low-intensity: network download
+    runtime: 120  # minutes (1 hour)
+
+# Projects - define multiple independent assemblies
+# Each project will be processed in its own directory
+# Note: The project key (e.g., "Pap") is used as the assembly name in output files
+projects:
+
+  Csr:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Csr_RAD05d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD02d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD03d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Csr_237JHHLT3_L5/Csr_RAD04d"
+
+    # Output directory for this project
+    project_dir: "Campanula_serrata"
+
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+      restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+      # Clustering (steps 3-6)
+      clust_threshold: 91           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "denovo"       # Options: "denovo", "reference" 
+
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "vp"
+
+    # Workflow control
+    workflow:
+      run_optimization: false         # Test multiple clustering thresholds
+      run_full_assembly: true         # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [85, 87, 89, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets:
+      #filtered for > 10 000 reads_consens AND only Csr* samples
+      nooutgr: "Csr_BBE-01,Csr_BBE-02,Csr_BBE-03,Csr_BBE-04,Csr_BBE-05,Csr_BBE-06,Csr_BBE-07,Csr_BBE-08,Csr_BBE-09,Csr_BBE-10,Csr_BBE-11,Csr_BBE-12,Csr_BBE-13,Csr_BBE-14,Csr_BBE-15,Csr_BBE-16,Csr_BBE-17,Csr_BBE-18,Csr_BBE-19,Csr_BBE-20,Csr_BES-01,Csr_BES-02,Csr_BES-03,Csr_BES-04,Csr_BES-05,Csr_BES-06,Csr_BES-07,Csr_BES-08,Csr_BES-09,Csr_BES-10,Csr_BES-11,Csr_BES-12,Csr_BES-13,Csr_BES-14,Csr_BES-15,Csr_BES-16,Csr_BES-17,Csr_BES-18,Csr_BES-19,Csr_BES-20,Csr_BUG-01,Csr_BUG-02,Csr_BUG-03,Csr_BUG-04,Csr_BUG-05,Csr_BUG-06,Csr_BUG-07,Csr_BUG-08,Csr_BUG-09,Csr_BUG-10,Csr_BUG-11,Csr_BUG-12,Csr_BUG-13,Csr_BUG-14,Csr_BUG-15,Csr_BUG-16,Csr_BUG-17,Csr_BUG-18,Csr_BUG-19,Csr_BUG-20,Csr_GIE-01,Csr_GIE-02,Csr_GIE-03,Csr_GIE-04,Csr_GIE-05,Csr_GIE-06,Csr_GIE-07,Csr_GIE-08,Csr_GIE-09,Csr_GIE-10,Csr_GIE-11,Csr_GIE-12,Csr_GIE-13,Csr_GIE-14,Csr_GIE-15,Csr_GIE-16,Csr_GIE-17,Csr_GIE-18,Csr_GIE-19,Csr_GIE-20,Csr_GIE-21,Csr_GIE-22,Csr_GIE-23,Csr_GIE-24,Csr_GIE-25,Csr_GIE-26,Csr_GIE-27,Csr_GIE-28,Csr_GIE-29,Csr_GIE-30,Csr_GLI-01,Csr_GLI-02,Csr_GLI-03,Csr_GLI-04,Csr_GLI-05,Csr_GLI-06,Csr_GLI-07,Csr_GLI-08,Csr_GLI-09,Csr_GLI-10,Csr_GLI-11,Csr_GLI-12,Csr_GLI-13,Csr_GLI-14,Csr_GLI-15,Csr_GLI-16,Csr_GLI-17,Csr_GLI-18,Csr_GLI-19,Csr_GLI-20,Csr_HUD-01,Csr_HUD-02,Csr_HUD-03,Csr_HUD-04,Csr_HUD-05,Csr_HUD-06,Csr_HUD-07,Csr_HUD-08,Csr_HUD-09,Csr_HUD-10,Csr_HUD-11,Csr_HUD-12,Csr_HUD-13,Csr_HUD-14,Csr_HUD-15,Csr_HUD-16,Csr_HUD-17,Csr_HUD-18,Csr_HUD-19,Csr_HUD-20,Csr_KO2-01,Csr_KO2-02,Csr_KO2-03,Csr_KO2-04,Csr_KO2-05,Csr_KO2-06,Csr_KO2-07,Csr_KO2-08,Csr_KO2-09,Csr_KO2-10,Csr_KO2-11,Csr_KO2-12,Csr_KO2-13,Csr_KO2-14,Csr_KO2-15,Csr_KO2-16,Csr_KO2-17,Csr_KO2-18,Csr_KO2-19,Csr_KO2-20,Csr_KO3-01,Csr_KO3-02,Csr_KO3-03,Csr_KO3-04,Csr_KO3-05,Csr_KO3-06,Csr_KO3-07,Csr_KO3-08,Csr_KO3-09,Csr_KO3-10,Csr_KO3-11,Csr_KO3-12,Csr_KO3-13,Csr_KO3-14,Csr_KO3-15,Csr_KO3-16,Csr_KO3-17,Csr_KO3-18,Csr_KO3-19,Csr_KO3-20,Csr_KO4-01,Csr_KO4-02,Csr_KO4-03,Csr_KO4-04,Csr_KO4-05,Csr_KO4-06,Csr_KO4-07,Csr_KO4-08,Csr_KO4-09,Csr_KO4-10,Csr_KO4-11,Csr_KO4-12,Csr_KO4-13,Csr_KO4-14,Csr_KO4-15,Csr_KO4-16,Csr_KO4-17,Csr_KO4-18,Csr_KO4-19,Csr_KO4-20,Csr_KR1-01,Csr_KR1-02,Csr_KR1-03,Csr_KR1-04,Csr_KR1-05,Csr_KR1-06,Csr_KR1-07,Csr_KR1-08,Csr_KR1-09,Csr_KR1-10,Csr_KR2-01,Csr_KR2-02,Csr_KR2-03,Csr_KR2-04,Csr_KR2-05,Csr_KR2-06,Csr_KR2-07,Csr_KR2-08,Csr_KR2-09,Csr_KR2-10,Csr_PIE-01,Csr_PIE-02,Csr_PIE-03,Csr_PIE-04,Csr_PIE-05,Csr_PIE-06,Csr_PIE-07,Csr_PIE-08,Csr_PIE-09,Csr_PIE-10,Csr_PRZ-01,Csr_PRZ-02,Csr_PRZ-03,Csr_PRZ-04,Csr_PRZ-05,Csr_PRZ-06,Csr_PRZ-07,Csr_PRZ-08,Csr_PRZ-09,Csr_PRZ-10,Csr_PRZ-11,Csr_PRZ-12,Csr_PRZ-13,Csr_PRZ-14,Csr_PRZ-15,Csr_PRZ-16,Csr_PRZ-17,Csr_PRZ-18,Csr_PRZ-19,Csr_PRZ-20,Csr_PRZ-21,Csr_PRZ-22,Csr_PRZ-23,Csr_PRZ-24,Csr_PRZ-25,Csr_PRZ-26,Csr_PRZ-27,Csr_PRZ-28,Csr_PRZ-29,Csr_PRZ-30,Csr_PRZ-31,Csr_PRZ-32,Csr_PRZ-33,Csr_PRZ-34,Csr_PRZ-35,Csr_PRZ-36,Csr_PRZ-37,Csr_PRZ-38,Csr_PRZ-39,Csr_PRZ-40,Csr_PST-01,Csr_PST-02,Csr_PST-03,Csr_PST-04,Csr_PST-05,Csr_PST-06,Csr_PST-07,Csr_PST-08,Csr_PST-09,Csr_PST-10,Csr_PST-11,Csr_PST-12,Csr_PST-13,Csr_PST-14,Csr_PST-15,Csr_PST-16,Csr_PST-17,Csr_PST-18,Csr_PST-19,Csr_PST-20,Csr_PWY-01,Csr_PWY-02,Csr_PWY-03,Csr_PWY-04,Csr_PWY-05,Csr_PWY-06,Csr_PWY-07,Csr_PWY-08,Csr_PWY-09,Csr_PWY-10,Csr_PWY-11,Csr_PWY-12,Csr_PWY-13,Csr_PWY-14,Csr_PWY-15,Csr_PWY-16,Csr_PWY-17,Csr_PWY-18,Csr_PWY-19,Csr_PWY-20,Csr_RAW-01,Csr_RAW-02,Csr_RAW-03,Csr_RAW-04,Csr_RAW-05,Csr_RAW-06,Csr_RAW-07,Csr_RAW-08,Csr_RAW-09,Csr_RAW-10,Csr_RAW-11,Csr_RAW-12,Csr_RAW-13,Csr_RAW-14,Csr_RAW-15,Csr_RAW-16,Csr_RAW-17,Csr_RAW-18,Csr_RAW-19,Csr_RAW-20,Csr_ROZ-01,Csr_ROZ-02,Csr_ROZ-03,Csr_ROZ-04,Csr_ROZ-05,Csr_ROZ-06,Csr_ROZ-07,Csr_ROZ-08,Csr_ROZ-09,Csr_ROZ-10,Csr_ROZ-11,Csr_ROZ-12,Csr_ROZ-13,Csr_ROZ-14,Csr_ROZ-15,Csr_ROZ-16,Csr_ROZ-17,Csr_ROZ-18,Csr_ROZ-19,Csr_ROZ-20,Csr_RYC-01,Csr_RYC-02,Csr_RYC-03,Csr_RYC-04,Csr_RYC-05,Csr_RYC-06,Csr_RYC-07,Csr_RYC-08,Csr_RYC-09,Csr_RYC-10,Csr_RYC-11,Csr_RYC-12,Csr_RYC-13,Csr_RYC-14,Csr_RYC-15,Csr_RYC-16,Csr_RYC-17,Csr_RYC-18,Csr_RYC-19,Csr_RYC-20,Csr_TAR-01,Csr_TAR-02,Csr_TAR-03,Csr_TAR-04,Csr_TAR-05,Csr_TAR-06,Csr_TAR-07,Csr_TAR-08,Csr_TAR-09,Csr_TAR-10,Csr_TAR-11,Csr_TAR-12,Csr_TAR-13,Csr_TAR-14,Csr_TAR-15,Csr_TAR-16,Csr_TAR-17,Csr_TAR-18,Csr_TAR-19,Csr_TAR-20,Csr_TOM-01,Csr_TOM-02,Csr_TOM-03,Csr_TOM-04,Csr_TOM-05,Csr_TOM-06,Csr_TOM-07,Csr_TOM-08,Csr_TOM-09,Csr_TOM-10,Csr_TOM-11,Csr_TOM-12,Csr_TOM-13,Csr_TOM-14,Csr_TOM-15,Csr_TOM-16,Csr_TOM-17,Csr_TOM-18,Csr_TOM-19,Csr_TOM-20,Csr_WWY-01,Csr_WWY-02,Csr_WWY-03,Csr_WWY-04,Csr_WWY-05,Csr_WWY-06,Csr_WWY-07,Csr_WWY-08,Csr_WWY-09,Csr_WWY-10,Csr_WWY-11,Csr_WWY-12,Csr_WWY-13,Csr_WWY-14,Csr_WWY-15,Csr_WWY-16,Csr_WWY-17,Csr_WWY-18,Csr_WWY-19,Csr_WWY-20"
+      #filtered for > 10 000 reads_consens AND non Csr* samples plus subset from Csr* (2 pops per region, 3 ind ecah)
+      #BZY: RYC, BUG;    TAT: GIE, TOM;    BIE: RAW, TAR
+      outgr: "Cbe_GUT-02,Cbe_GUT-03,Cbe_WIE-01,Cbe_WIE-02,Cbe_WIE-03,Cca-MCA-01,Cca-MCA-02,Cpr_SCH-01,Cpr_SCH-02,Cpr_SCH-03,Cro_GUT-01,Cro_GUT-02,Cro_GUT-03,Csc_SCH-01,Csc_SCH-02,Csc_SCH-03,Cwi_SEM-01,Cwi_SEM-02,Cwi_SEM-03,Csr_RYC-03,Csr_RYC-08,Csr_RYC-11,Csr_BUG-08,Csr_BUG-11,Csr_BUG-19,Csr_TOM-09,Csr_TOM-19,Csr_TOM-14,Csr_GIE-02,Csr_GIE-07,Csr_GIE-16,Csr_RAW-02,Csr_RAW-04,Csr_RAW-08,Csr_TAR-05,Csr_TAR-08,Csr_TAR-17"
+

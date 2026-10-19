@@ -1,0 +1,107 @@
+# Configuration for ipyrad Snakemake pipeline
+# Supports multiple independent projects with different settings
+
+# Computational resources (shared across all projects)
+# For SLURM: memory = mem_per_cpu * threads
+resources:
+  max_cpus: 48  # Maximum CPUs available (adjust based on your cluster/machine)
+  mem_per_cpu: 3850  # Memory per CPU in MB (default for ARES cluster)
+
+  s1_demultiplexing:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  s2_filtering:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  select_optimization_samples:
+    threads: 1
+    runtime: 20  # minutes
+  
+  merge_assemblies:
+    threads: 4
+    runtime: 15  # minutes
+
+  s3_clustering_within:
+    threads: 48
+    runtime: 4320  # minutes (20 hours) - most intensive step
+
+  s4_joint_estimation:
+    threads: "samples"
+    runtime: 90  # minutes
+
+  s5_consensus_calling:
+    threads: "samples"
+    runtime: 4320  # minutes
+
+  s6_clustering_across:
+    threads: "samples"
+    runtime: 240  # minutes (4 hours)
+
+  s7_filter_export:
+    threads: "samples"
+    runtime: 480  # minutes
+
+  download_reference:
+    threads: 1  # Low-intensity: network download
+    runtime: 120  # minutes (1 hour)
+
+# Projects - define multiple independent assemblies
+# Each project will be processed in its own directory
+# Note: The project key (e.g., "Pap") is used as the assembly name in output files
+projects:
+
+  Pal:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pmi_Pal_Sza_22GW2VLT3_L5/Pal_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pmi_Pal_Sza_22GW2VLT3_L5/Pal_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pmi_Pal_Sza_22GW2VLT3_L5/Pal_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pmi_Pal_Sza_22GW2VLT3_L5/Pal_RAD01d"
+
+    # Output directory for this project
+    project_dir: "Papaver_alpinum"
+
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+      restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+      # Clustering (steps 3-6)
+      clust_threshold: 90           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "denovo"       # Options: "denovo", "reference" 
+
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "v"
+
+    # Workflow control
+    workflow:
+      run_optimization: true         # Test multiple clustering thresholds
+      run_full_assembly: false         # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [87, 89, 90, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets:
+

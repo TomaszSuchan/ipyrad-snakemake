@@ -1,0 +1,120 @@
+# Configuration for ipyrad Snakemake pipeline
+# Supports multiple independent projects with different settings
+
+# Computational resources (shared across all projects)
+# For SLURM: memory = mem_per_cpu * threads
+resources:
+  max_cpus: 48  # Maximum CPUs available (adjust based on your cluster/machine)
+  mem_per_cpu: 3850  # Memory per CPU in MB (default for ARES cluster)
+
+  s1_demultiplexing:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  s2_filtering:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  select_optimization_samples:
+    threads: 1
+    runtime: 20  # minutes
+  
+  merge_assemblies:
+    threads: 4
+    runtime: 15  # minutes
+
+  s3_clustering_within:
+    threads: 48
+    runtime: 240  # minutes
+
+  s4_joint_estimation:
+    threads: 48
+    runtime: 90  # minutes
+
+  s5_consensus_calling:
+    threads: 48
+    runtime: 240  # minutes
+
+  s6_clustering_across:
+    threads: 48
+    runtime: 240  # minutes
+
+  s7_filter_export:
+    threads: 6
+    runtime: 120  # minutes
+
+  download_reference:
+    threads: 1  # Low-intensity: network download
+    runtime: 120  # minutes (1 hour)
+
+# Projects - define multiple independent assemblies
+# Each project will be processed in its own directory
+# Note: The project key (e.g., "Pap") is used as the assembly name in output files
+projects:
+  Pap_breeding-ref:
+  #Pap:
+    # Library file prefixes - list of paths to raw data
+    # Each prefix needs: {prefix}_R1_.fastq.gz, {prefix}_R2_.fastq.gz, {prefix}.txt
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Pap_Pmi_Rgl_232NWCLT3_L5/Pap_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Doc_Pap_Rgl_233V53LT3_L3/Pap_RAD02b"
+
+    # Output directory for this project
+    project_dir: "Parnassius_apollo-ref"
+    #project_dir: "Parnassius_apollo"
+    # ipyrad parameters
+    ipyrad:
+      # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+      # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+      restriction_overhang: ["TGCAG", "TAA"]
+
+      # Filtering (steps 1-2)
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+      # Clustering (steps 3-6)
+      clust_threshold: 85           # Similarity threshold for clustering
+      mindepth_statistical: 6         # Min depth for statistical base calling
+      mindepth_majrule: 6             # Min depth for majority rule base calling
+      max_Ns_consens: 0.05            # Max proportion of Ns in consensus (0.0-1.0)
+      max_Hs_consens: 0.05            # Max heterozygosity in consensus (0.0-1.0)
+      max_alleles_consens: 2          # Ploidy (2=diploid, 4=tetraploid)
+      assembly_method: "reference"       # Options: "denovo", "reference" 
+      reference_assembly: "GCA_907164705.1"
+
+      # Filtering and output (step 7)
+      min_samples_percent: 50         # Min % of samples for a locus
+      output_formats: "v"
+      
+    # Workflow control
+    workflow:
+      run_optimization: false         # Test multiple clustering thresholds
+      run_full_assembly: true         # Run full assembly
+
+    # Optimization settings (only used if run_optimization=true)
+    optimization:
+      n_samples: 20                   # Number of samples to test
+      replicate_suffix: "_repl"       # Pattern to identify replicates
+      remove_bottom_percent: 20       # Remove lowest X% by read count
+      random_seed: 42                 # Reproducible sampling
+      samples: null                   # Or specify: ["sample1", "sample2"]
+      use_replicates: true            # Include all replicates
+      thresholds: [85, 87, 89, 91, 93, 95]  # Thresholds to test
+
+    # Step 7 subsets (optional - create separate outputs for sample groups)
+    step7_subsets:
+      # we remove samples with less than 23823 reads_consens = less than 10760 nloci in full assembly
+      all_repl: "PA148_231207-1,PA149_231207-1,PA150_231207-1,PA151_231207-1,PA152_231207-1,PA153_231207-1,PA154_231207-1,PA155_231207-1,PA156_231207-1,PA157_231207-1,PA158_231207-1,PA159_231207-1,PA160_231207-1,PA161_231207-1,PB002_230613-1,PB004_230613-1,PB006_230620-1,PB007_230620-1,PB009_230620-1,PB022_230613-1,PB023_230613-1,PB024_230613-1,PB025_230613-1,PB034_230620-1,PB191_241010-1,PB192_241010-1,PB193_241010-1,PB194_241010-1,PB196_241010-1,PB197_241010-1,PB198_241010-1,PB199_241010-1,PB206_241011-1,PB207_241011-1,PB208_241011-1,PB209_241011-1,PB210_241011-1,PB212_241011-1,PB213_241011-1,PB213_241011-1_replRAD2b,PB233_231009-1,PB234_231009-1,PB235_231009-1,PB236_231010-1,PB237_231010-1,PB239_231010-1,PB240_231010-1,PB241_231010-1,PB242_231010-1,PB243_240809-1,PB251_240809-1,PB253_240809-1,PB254_240809-1,PB255_240809-1,PB256_240809-1,PB257_240809-1,PB258_240809-1,PB259_240809-1,PB261_240809-1,PB262_240809-1,PB263_240806-1,PB264_240806-1,PB265_240806-1,PB266_240806-1,PB267_240806-1,PB268_240806-1,PB269_240806-1,PB270_240806-1,PB271_240806-1,PB273_240806-1,PB274_240806-1,PB275_240806-1,PB276_240806-1,PB277_240806-1,PB278_240806-1,PB279_240806-1,PB280_240806-1,PB281_240806-1,PB323_240807-1,PB329_240807-1,PB335_240807-1,PB336_240807-1,PB337_240807-1,PB338_240807-1,PB339_240808-1,PB340_240808-1,PB341_240808-1,PB342_240808-1,PB343_240808-1,PB344_240808-1,PB345_240808-1,PB346_240808-1,PB347_240808-1,PB348_240808-1,PB350_240808-1,PB351_240808-1,PB352_240808-1,PB353_240808-1,PB354_240808-1,PB355_240808-1,PB356_240808-1,PB357_240808-1,PB358_240808-1,PB359_240808-1"
+      all: "PB025_230613-1,PB192_241010-1,PB007_230620-1,PA160_231207-1,PB242_231010-1,PB209_241011-1,PB199_241010-1,PB198_241010-1,PB208_241011-1,PB213_241011-1,PB264_240806-1,PB212_241011-1,PB263_240806-1,PB270_240806-1,PB336_240807-1,PB210_241011-1,PA156_231207-1,PA158_231207-1,PB278_240806-1,PA148_231207-1,PB279_240806-1,PB262_240809-1,PB271_240806-1,PB235_231009-1,PA161_231207-1,PA149_231207-1,PB266_240806-1,PB009_230620-1,PB207_241011-1,PB240_231010-1,PB034_230620-1,PB191_241010-1,PB022_230613-1,PB273_240806-1,PA153_231207-1,PB265_240806-1,PB267_240806-1,PB206_241011-1,PB193_241010-1,PB359_240808-1,PB268_240806-1,PA152_231207-1,PB197_241010-1,PB194_241010-1,PB323_240807-1,PB243_240809-1,PB277_240806-1,PA155_231207-1,PB234_231009-1,PB023_230613-1,PB196_241010-1,PB253_240809-1,PB276_240806-1,PB344_240808-1,PB345_240808-1,PB275_240806-1,PB006_230620-1,PB258_240809-1,PA157_231207-1,PB002_230613-1,PA159_231207-1,PB257_240809-1,PB236_231010-1,PB280_240806-1,PB343_240808-1,PB341_240808-1,PB274_240806-1,PB241_231010-1,PB354_240808-1,PB351_240808-1,PB358_240808-1,PB357_240808-1,PB239_231010-1,PB269_240806-1,PB350_240808-1,PB342_240808-1,PB353_240808-1,PB329_240807-1,PB004_230613-1,PB337_240807-1,PB237_231010-1,PA154_231207-1,PB254_240809-1,PB346_240808-1,PB281_240806-1,PB335_240807-1,PB261_240809-1,PB352_240808-1,PB233_231009-1,PB251_240809-1,PA151_231207-1,PB024_230613-1,PB355_240808-1,PB347_240808-1,PA150_231207-1,PB255_240809-1,PB338_240807-1,PB259_240809-1,PB356_240808-1,PB256_240809-1,PB340_240808-1,PB348_240808-1,PB339_240808-1"
+      frankenbergeri: "PB263_240806-1,PB264_240806-1,PB265_240806-1,PB266_240806-1,PB267_240806-1,PB268_240806-1,PB269_240806-1,PB270_240806-1,PB271_240806-1,PB273_240806-1,PB274_240806-1,PB275_240806-1,PB276_240806-1,PB277_240806-1,PB278_240806-1,PB279_240806-1,PB280_240806-1,PB281_240806-1,PB002_230613-1,PB004_230613-1,PB006_230620-1,PB007_230620-1,PB009_230620-1,PB243_240809-1,PB251_240809-1,PB253_240809-1,PB254_240809-1,PB255_240809-1,PB256_240809-1,PB257_240809-1,PB258_240809-1,PB259_240809-1,PB261_240809-1,PB262_240809-1,PB022_230613-1,PB023_230613-1,PB024_230613-1,PB025_230613-1,PB034_230620-1,PB191_241010-1,PB192_241010-1,PB193_241010-1,PB194_241010-1,PB196_241010-1,PB197_241010-1,PB198_241010-1,PB199_241010-1,PB206_241011-1,PB207_241011-1,PB208_241011-1,PB209_241011-1,PB210_241011-1,PB212_241011-1,PB213_241011-1,PA158_231207-1,PA159_231207-1,PA160_231207-1,PA161_231207-1,PA148_231207-1,PA149_231207-1,PA150_231207-1,PA151_231207-1,PA152_231207-1,PA153_231207-1,PA154_231207-1,PA155_231207-1,PA156_231207-1,PA157_231207-1,PB233_231009-1,PB234_231009-1,PB235_231009-1,PB236_231010-1,PB237_231010-1,PB239_231010-1,PB240_231010-1,PB241_231010-1,PB242_231010-1"
+

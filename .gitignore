@@ -16,3 +16,15 @@ __pycache__/
 .claude/
 .vscode/
 .DS_Store
+
+# Local assembly / analysis outputs (project_dir trees)
+Campanula_barbata/
+Campanula_serrata/
+Dryas_octopetala/
+Papaver_alpinum/
+Parnassius_apollo/
+Parnassius_apollo-ref/
+Ranunculus_glacialis/
+Rhododendron_ferrugineum/
+Rubus_chamaemorus/
+genomes/

@@ -92,6 +92,21 @@ def get_subset_outputs(project_name, profile_name, assembly_name, project_dir):
     except Exception:
         return []
 
+
+def get_subset_pca_outputs(project_name, profile_name, assembly_name, project_dir):
+    """PCA QC plots for each step7 subset VCF."""
+    subsets = PROJECT_PROFILES_CONFIGS[project_name][profile_name].get("step7_subsets", {}) or {}
+    outputs = []
+    for subset_name in subsets:
+        stem = f"{assembly_name}_{subset_name}"
+        qc_dir = f"{project_dir}/full/{assembly_name}/{stem}_outfiles/qc"
+        outputs.extend([
+            f"{qc_dir}/{stem}.pca_library.pdf",
+            f"{qc_dir}/{stem}.pca_barcode.pdf",
+            f"{qc_dir}/{stem}.pca_scores.tsv",
+        ])
+    return outputs
+
 # Determine which project(s) to run
 if "project" in config:
     # Single project specified on command line
@@ -356,7 +371,7 @@ CONDA_ENV = "envs/ipyrad.yaml"
 MEM_PER_CPU = lambda wildcards, threads: threads * config["resources"]["mem_per_cpu"]
 
 # Validate and set defaults for optional QC resources
-QC_STEPS = ['qc_whoa', 'qc_replicates', 'qc_vcftools_hardy', 'qc_hardy_summary', 'qc_shared_loci']
+QC_STEPS = ['qc_whoa', 'qc_replicates', 'qc_vcftools_hardy', 'qc_hardy_summary', 'qc_shared_loci', 'qc_pca']
 for step in QC_STEPS:
     if step not in config['resources']:
         config['resources'][step] = {
@@ -469,6 +484,12 @@ def get_library_s2_stats(wildcards):
         f"{wildcards.project_dir}/demultiplexed/{lib_id}/{info['name']}_edits/s2_rawedit_stats.txt"
         for lib_id, info in libraries.items()
     ]
+
+
+def get_project_barcode_files(wildcards):
+    """Barcode files for every library in the project."""
+    libraries = get_all_libraries(wildcards)
+    return [info["barcode"] for info in libraries.values()]
 
 def get_optimization_stats(wildcards):
     """Get stats files for all optimization thresholds"""
@@ -1227,6 +1248,66 @@ rule qc_hardy_summary:
                 --output {output.report} &> {log}
         fi
         """
+
+
+# PCA of the exported VCF, colored by barcode and by library.
+# Points are samples. A star and the group name mark each group centroid.
+# A sample merged across libraries is its own category, named by the joined pair.
+rule qc_pca:
+    message: "QC: PCA by barcode and library for {wildcards.assembly_name}"
+    input:
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/{assembly_name}.vcf",
+        barcodes = get_project_barcode_files
+    output:
+        library_pdf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.pca_library.pdf",
+        barcode_pdf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.pca_barcode.pdf",
+        scores = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_outfiles/qc/{assembly_name}.pca_scores.tsv"
+    params:
+        max_snps = lambda w: int(get_proj_config(w).get("qc", {}).get("pca_max_snps", 5000)),
+        max_missing = lambda w: float(get_proj_config(w).get("qc", {}).get("pca_max_missing", 0.5)),
+        min_maf = lambda w: float(get_proj_config(w).get("qc", {}).get("pca_min_maf", 0.05)),
+        max_sample_missing = lambda w: float(get_proj_config(w).get("qc", {}).get("pca_max_sample_missing", 0.5)),
+        seed = lambda w: int(get_proj_config(w).get("qc", {}).get("pca_seed", 1))
+    threads: lambda w: get_threads("qc_pca", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_pca"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_pca_{assembly_dir}_{assembly_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_pca_{assembly_dir}_{assembly_name}.txt"
+    script:
+        "scripts/qc_pca_batch.py"
+
+rule qc_pca_subset:
+    message: "QC: PCA by barcode and library for {wildcards.assembly_name}_{wildcards.subset_name}"
+    input:
+        vcf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/{assembly_name}_{subset_name}.vcf",
+        barcodes = get_project_barcode_files
+    output:
+        library_pdf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/qc/{assembly_name}_{subset_name}.pca_library.pdf",
+        barcode_pdf = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/qc/{assembly_name}_{subset_name}.pca_barcode.pdf",
+        scores = "{project_dir}/{assembly_dir}/{assembly_name}/{assembly_name}_{subset_name}_outfiles/qc/{assembly_name}_{subset_name}.pca_scores.tsv"
+    params:
+        max_snps = lambda w: int(get_proj_config(w).get("qc", {}).get("pca_max_snps", 5000)),
+        max_missing = lambda w: float(get_proj_config(w).get("qc", {}).get("pca_max_missing", 0.5)),
+        min_maf = lambda w: float(get_proj_config(w).get("qc", {}).get("pca_min_maf", 0.05)),
+        max_sample_missing = lambda w: float(get_proj_config(w).get("qc", {}).get("pca_max_sample_missing", 0.5)),
+        seed = lambda w: int(get_proj_config(w).get("qc", {}).get("pca_seed", 1))
+    threads: lambda w: get_threads("qc_pca", w)
+    resources:
+        mem_mb = MEM_PER_CPU,
+        runtime = config["resources"]["qc_pca"]["runtime"]
+    conda:
+        CONDA_ENV
+    log:
+        "{project_dir}/logs/qc_pca_{assembly_dir}_{assembly_name}_{subset_name}.log"
+    benchmark:
+        "{project_dir}/benchmarks/qc_pca_{assembly_dir}_{assembly_name}_{subset_name}.txt"
+    script:
+        "scripts/qc_pca_batch.py"
 
 # Rule to generate simple QC report
 rule unified_qc_report:

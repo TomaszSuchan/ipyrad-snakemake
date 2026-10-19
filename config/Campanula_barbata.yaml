@@ -1,0 +1,114 @@
+# Configuration for ipyrad Snakemake pipeline
+# Supports multiple independent projects with different settings
+
+# Computational resources (shared across all projects)
+# For SLURM: memory = mem_per_cpu * threads
+resources:
+  max_cpus: 48  # Maximum CPUs available (adjust based on your cluster/machine)
+  mem_per_cpu: 3850  # Memory per CPU in MB (default for ARES cluster)
+
+  s1_demultiplexing:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  s2_filtering:
+    threads: "samples"
+    runtime: 30  # minutes
+
+  select_optimization_samples:
+    threads: 1
+    runtime: 20  # minutes
+  
+  merge_assemblies:
+    threads: 4
+    runtime: 15  # minutes
+
+  s3_clustering_within:
+    threads: 48
+    runtime: 4320  # minutes (20 hours) - most intensive step
+
+  s4_joint_estimation:
+    threads: "samples"
+    runtime: 90  # minutes
+
+  s5_consensus_calling:
+    threads: "samples"
+    runtime: 4320  # minutes
+
+  s6_clustering_across:
+    threads: "samples"
+    runtime: 240  # minutes (4 hours)
+
+  s7_filter_export:
+    threads: "samples"
+    runtime: 480  # minutes
+
+  download_reference:
+    threads: 1  # Low-intensity: network download
+    runtime: 120  # minutes (1 hour)
+
+# Projects - define multiple independent assemblies
+# Each project will be processed in its own directory
+# Note: The project key (e.g., "Pap") is used as the assembly name in output files
+projects:
+  Cba_RAD:
+    project_dir: "Campanula_barbata"
+    library_prefixes:
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Cba_RAD03a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Cba_RAD03b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Csr_Doc_Rgl_237JHHLT3_L7/Cba_RAD03c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD01a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD01b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD01c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD01d"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD02a"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD02b"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD02c"
+      - "/net/pr2/projects/plgrid/plggpam/_seqdata/Cba_Pmi_Pot_232NWGLT3_L8/Cba_RAD02d"
+
+    # Shared demultiplex/filter settings for steps 1-2 (must match across profiles)
+    # Datatype options (ipyrad): rad, gbs, 2brad, ddrad, pairddrad, pairgbs, pair3rad
+    # Restriction enzymes: ["enzyme1_overhang", "enzyme2_overhang"]
+    # Common: PstI/MseI: ["TGCAG", "TAA"], SbfI/MspI: ["TGCAGG", "CGG"]
+    ipyrad_step12:
+      datatype: "pair3rad"            # Used in step 1-2 (demultiplex/filter)
+      restriction_overhang: ["TGCAG", "TAA"]
+      filter_adapters: 2              # 0=none, 1=strict, 2=relaxed
+      filter_min_trim_len: 35         # Min read length after trimming
+
+    assemblies:
+      denovo:
+        # ipyrad parameters for this assembly profile (steps 3-7)
+        ipyrad:
+          datatype: "pairddrad"        # Used in assembly steps (3-7)
+          assembly_method: "denovo"    # Options: "denovo", "reference"
+          clust_threshold: 0.91        # Similarity threshold for clustering
+          mindepth_statistical: 6      # Min depth for statistical base calling
+          mindepth_majrule: 6          # Min depth for majority rule base calling
+          max_Ns_consens: 0.05         # Max proportion of Ns in consensus (0.0-1.0)
+          max_Hs_consens: 0.05         # Max heterozygosity in consensus (0.0-1.0)
+          max_alleles_consens: 2       # Ploidy (2=diploid, 4=tetraploid)
+          min_samples_percent: 50      # Min % of samples for a locus
+          # Output formats (single letter codes, no separators):
+          # p: PHYLIP(full), s: PHYLIP(SNPs), u: PHYLIP(one SNP/locus)
+          # n: NEXUS, k: STRUCTURE, g: EIGENSTRAT, G: G-PhoCS, v: VCF
+          output_formats: "pv"
+        # Per-profile workflow toggles
+        workflow:
+          run_optimization: false       # Test multiple clustering thresholds
+          run_full_assembly: true     # Run full assembly
+        # Optimization settings (used if run_optimization=true)
+        optimization:
+          n_samples: 10                # Number of samples to test
+          replicate_suffix: "_repl"    # Pattern to identify replicates
+          remove_bottom_percent: 20    # Remove lowest X% by read count
+          random_seed: 42              # Reproducible sampling
+          samples: null                # Or specify: ["sample1", "sample2"]
+          use_replicates: true         # Include all replicates
+          thresholds: [0.85, 0.87, 0.89, 0.90, 0.91, 0.93, 0.95]  # Similarity thresholds to test
+        # Step 7 subsets (optional - create separate outputs for sample groups)
+        step7_subsets:
+          #1 population from Snieznik (HSN+PSN), 2 from Jesenik (CSE, WKO) - for these samples selected based on relatedness in Cba_RAD_denovo_Sudetes_filt10k AND > 10 000 reads_consens, Cba_G21-03 removed (had only 6 loci in Cba_RAD_denovo assembly)
+          Eur_filt10k: "Cba_CSE-01,Cba_CSE-02,Cba_CSE-03,Cba_CSE-05,Cba_CSE-06,Cba_HSN-09,Cba_HSN-04,Cba_HSN-07,Cba_HSN-08,Cba_PSN-01,Cba_PSN-02,Cba_PSN-03,Cba_PSN-04,Cba_WKO-02,Cba_WKO-03,Cba_WKO-04,Cba_WKO-06,Cba_WKO-09,Cba_P08-01,Cba_F18-01,Cba_F18-02,Cba_F18-03,Cba_F28-01,Cba_F28-02,Cba_F28-03,Cba_F30-01,Cba_F30-02,Cba_F30-03,Cba_F32-01,Cba_F32-02,Cba_F32-03,Cba_F35-01,Cba_F35-02,Cba_F35-03,Cba_G21-01,Cba_G21-02,Cba_G25-01,Cba_G25-02,Cba_G25-03,Cba_H18-01,Cba_H18-02,Cba_H18-03,Cba_H28-01,Cba_H28-02,Cba_H28-03,Cba_H30-02,Cba_H30-03,Cba_H32-01,Cba_H32-02,Cba_H32-03,Cba_I11-01,Cba_I11-02,Cba_I11-03,Cba_I15-01,Cba_I15-02,Cba_I15-03,Cba_I19-01,Cba_I19-02,Cba_I19-03,Cba_I21-01,Cba_I21-02,Cba_I23-01,Cba_I23-02,Cba_I23-03,Cba_J16-01,Cba_J16-03,Cba_J26-01,Cba_J26-02,Cba_J26-03,Cba_K09-01,Cba_K09-02,Cba_K09-03,Cba_K11-01,Cba_K11-02,Cba_K11-03,Cba_K13-01,Cba_K13-02,Cba_K13-03,Cba_K15-01,Cba_K15-02,Cba_K15-03,Cba_K19-01,Cba_K19-02,Cba_K19-03,Cba_K23-01,Cba_K23-02,Cba_K23-03,Cba_K29-01,Cba_K29-02,Cba_K29-03,Cba_K33-01,Cba_K33-03,Cba_L16-01,Cba_L16-02,Cba_L16-03,Cba_L26-01,Cba_L26-02,Cba_L26-03,Cba_M09-01,Cba_M09-02,Cba_M09-03,Cba_M13-01,Cba_M13-02,Cba_M13-03,Cba_M21-01,Cba_M21-02,Cba_M21-03,Cba_N16-01,Cba_N16-02,Cba_N16-03,Cba_N20-01,Cba_N20-02,Cba_N20-03,Cba_N22-01,Cba_N22-02,Cba_N22-03,Cba_NOR-01,Cba_NOR-02,Cba_NOR-03,Cba_NOR-04,Cba_NOR-05,Cba_NOR-06,Cba_NOR-07,Cba_NOR-08,Cba_NOR-09,Cba_NOR-10,Cba_NOR-11,Cba_NOR-12,Cba_NOR-13,Cba_NOR-14,Cba_NOR-15,Cba_O07-01,Cba_O07-02,Cba_O07-03,Cba_O21-01,Cba_O21-02,Cba_O21-03,Cba_P06-01,Cba_P06-02,Cba_P06-03,Cba_P08-02,Cba_P08-03,Cba_P10-01,Cba_P10-02,Cba_P10-03,Cba_Q05-02,Cba_Q05-03,Cba_Q05-04,Cba_Q07-01,Cba_Q07-02,Cba_Q07-03,Cba_Q09-01,Cba_Q09-02,Cba_Q09-03,Cba_R06-01,Cba_R06-02,Cba_R08-01,Cba_R08-02,Cba_R08-03,Cba_R10-02,Cba_R10-03,Cba_R10-04,Cba_S07-01,Cba_S07-02,Cba_S07-03,Cba_S09-01,Cba_S09-02,Cba_S09-03,Cba_U07-01,Cba_U07-03,Cba_U07-04,Cba_U09-01,Cba_U09-02,Cba_U09-03"
+          #all samples from Sudetes AND > 10 000 reads_consens
+          Sudetes_filt10k: "Cba_BAR-01,Cba_BAR-03,Cba_BAR-04,Cba_BAR-05,Cba_BAR-06,Cba_BAR-07,Cba_BAR-08,Cba_BAR-09,Cba_BAR-10,Cba_CHO-01,Cba_CHO-02,Cba_CHO-03,Cba_CHO-04,Cba_CHO-05,Cba_CHO-06,Cba_CHO-07,Cba_CHO-08,Cba_CHO-09,Cba_CHO-10,Cba_CSE-01,Cba_CSE-02,Cba_CSE-03,Cba_CSE-04,Cba_CSE-05,Cba_CSE-06,Cba_CSE-07,Cba_CSE-08,Cba_CSE-09,Cba_CSE-10,Cba_HSN-01,Cba_HSN-02,Cba_HSN-03,Cba_HSN-04,Cba_HSN-05,Cba_HSN-06,Cba_HSN-07,Cba_HSN-08,Cba_HSN-09,Cba_HSN-10,Cba_JES-02,Cba_JES-03,Cba_JES-04,Cba_JES-05,Cba_KOT-01,Cba_KOT-02,Cba_KOT-03,Cba_KOT-04,Cba_KRAM_208787,Cba_KRAM-445553,Cba_KRAM-445554,Cba_KRAM-445555,Cba_KSN-02,Cba_OVC-01,Cba_OVC-02,Cba_OVC-03,Cba_OVC-04,Cba_OVC-05,Cba_OVC-06,Cba_PSN-01,Cba_PSN-02,Cba_PSN-03,Cba_PSN-04,Cba_SNI-01,Cba_SNI-02,Cba_SNI-03,Cba_SNI-04,Cba_SNI-05,Cba_SNI-06,Cba_VID-01,Cba_VID-02,Cba_VID-03,Cba_VID-04,Cba_VID-05,Cba_VID-06,Cba_WKO-01,Cba_WKO-02,Cba_WKO-03,Cba_WKO-04,Cba_WKO-05,Cba_WKO-06,Cba_WKO-07,Cba_WKO-08,Cba_WKO-09,Cba_WKO-10"
